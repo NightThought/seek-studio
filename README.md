@@ -1,23 +1,35 @@
-# chat-demo
+# SeekStudio
 
 English | [简体中文](README.zh-CN.md)
 
-A static chat demo powered by the DeepSeek API. No application backend is required: the browser connects directly to the configured API service.
+An open-source AI workspace powered by DeepSeek APIs, forked from [deepseek-ai/chat-demo](https://github.com/deepseek-ai/chat-demo). This is a community project, not an official DeepSeek product.
 
-You can [try the app online](https://deepseek-ai.github.io/chat-demo/) or download the archive from [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases), extract it, and double-click `index.html` to use it locally without installation or a build. Enter your API key in Settings before your first chat.
+## AI Search Studio
+
+The default workspace runs one web search at a time with streamed answers, source citations, stop/retry controls, copy, and Markdown export. Results survive switching to Chat but are not persisted across reloads. Missing sources, failed tools and incomplete answers are explicitly identified. The original chat features remain available under **Chat**.
+
+## Local API key
+
+Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`. Restart `pnpm dev` after changes. The local server injects this key into upstream requests through `/api`; it is never embedded in client JavaScript or browser storage. The dev server binds to `127.0.0.1`. `.env` is ignored by Git.
+
+Without `.env`, enter your own key in Settings → Data management to use the original browser-direct mode.
+
+The env proxy is **local development only**. Static `pnpm build` output contains neither the server key nor a proxy and uses the key configured in the browser. A shared, multi-user deployment requires a separately authenticated backend.
 
 ## Getting started
 
 Install Node.js 22.12+ and pnpm, then run:
 
 ```sh
-git clone https://github.com/deepseek-ai/chat-demo.git
-cd chat-demo
+git clone https://github.com/NightThought/seek-studio.git
+cd seek-studio
 pnpm install
+cp .env.example .env
+# Set DEEPSEEK_API_KEY in .env
 pnpm dev
 ```
 
-Open http://localhost:8090.
+Open http://127.0.0.1:8090.
 
 To build the static site:
 
@@ -73,3 +85,7 @@ src/
 ## License
 
 [MIT](LICENSE). The build copies the license to `dist/LICENSE`; include it when distributing the app. Third-party dependencies are subject to their own licenses.
+
+## Search regression checks
+
+Run `pnpm test` for mocked streaming, HTTP errors, cancellation, refusal, interrupted responses, citation exports, and source URL validation. No API key or paid request is required. Also run `pnpm type`, `pnpm lint`, and `pnpm build`.

@@ -12,7 +12,13 @@ export const useApiKeyEditor = () => {
   const apiKey = useSettings((state) => state.apiKey)
   const [editing, setEditing] = useState(false)
   const form = useApiKeyForm(() => setEditing(false))
-  return { apiKey, editing, setEditing, form, showInput: !apiKey || editing }
+  return {
+    apiKey,
+    editing,
+    setEditing,
+    form,
+    showInput: !__SERVER_API_KEY__ && (!apiKey || editing),
+  }
 }
 
 type ApiKeyEditor = ReturnType<typeof useApiKeyEditor>
@@ -22,6 +28,14 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
   const t = useTranslate()
   const isMobile = useIsMobile()
   const { apiKey, editing, setEditing, form, showInput } = editor
+
+  if (__SERVER_API_KEY__) {
+    return (
+      <div className={styles.cell}>
+        <div className={styles.label}>{t('serverApiKey')}</div>
+      </div>
+    )
+  }
 
   return (
     <div className={styles.cell}>

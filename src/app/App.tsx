@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslate } from '../i18n/index.js'
 import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
@@ -24,10 +24,13 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { SearchStudio } from '../components/searchStudio/SearchStudio.js'
+import { openSettings } from '../components/settings/settingsDialogState.js'
 import styles from './App.module.css'
 
 export const App = () => {
   const t = useTranslate()
+  const [workspace, setWorkspace] = useState<'search' | 'chat'>('search')
   const isMobile = useIsMobile()
   const locale = useSettings((state) => state.locale)
   // 移动端侧边栏以独立抽屉管理开合状态
@@ -61,9 +64,9 @@ export const App = () => {
   useEffect(bindChatPersistence, [])
 
   // 搜索结果面板只属于当前会话
-  useEffect(closeSearchPanel, [activeId])
+  useEffect(closeSearchPanel, [activeId, workspace])
   // 切换会话时停止朗读
-  useEffect(stopReadAloud, [activeId])
+  useEffect(stopReadAloud, [activeId, workspace])
   // 移动端选中会话、切换布局后收起抽屉
   useEffect(closeMobileSider, [activeId, isMobile])
 
@@ -76,8 +79,38 @@ export const App = () => {
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
+        {workspace === 'chat' ? (
+          isMobile ? (
+            <MobileSider />
+          ) : siderCollapsed ? null : (
+            <Sider />
+          )
+        ) : null}
         <main className={styles.main}>
+          <nav className={styles.workspaceNav} aria-label={t('studioNavigation')}>
+            <strong>SeekStudio</strong>
+            <button
+              type="button"
+              aria-pressed={workspace === 'search'}
+              onClick={() => setWorkspace('search')}
+            >
+              {t('searchStudio')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={workspace === 'chat'}
+              onClick={() => setWorkspace('chat')}
+            >
+              {t('studioChat')}
+            </button>
+            <button
+              type="button"
+              className={styles.workspaceSettings}
+              onClick={() => openSettings('data')}
+            >
+              {t('settings')}
+            </button>
+          </nav>
           {saveError ? (
             <div className={styles.saveError} role="alert">
               <span>{t('sessionSaveFailed')}</span>
@@ -91,7 +124,10 @@ export const App = () => {
               </Button>
             </div>
           ) : null}
-          <div className={styles.content}>
+          <div className={styles.searchContent} hidden={workspace !== 'search'}>
+            <SearchStudio />
+          </div>
+          <div className={styles.content} hidden={workspace !== 'chat'}>
             {siderCollapsed ? <CollapsedSider /> : null}
             {!ready || (activeId !== null && !session) ? (
               <div className={styles.loadingView}>
@@ -130,7 +166,7 @@ export const App = () => {
             )}
           </div>
         </main>
-        <SearchPanel />
+        {workspace === 'chat' ? <SearchPanel /> : null}
       </div>
       <SettingsDialog />
       <Toast />

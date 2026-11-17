@@ -1,6 +1,32 @@
 import type { zh } from './zh.js'
 
 export const en = {
+  studioChat: 'Chat',
+  studioNavigation: 'Workspace navigation',
+  serverApiKey: 'Using the API key from the local .env file. Restart the dev server after changes.',
+  searchStudio: 'AI Search Studio',
+  searchIntro: 'Start with a question. Find answers with sources you can follow.',
+  searchQuestion: 'What would you like to explore?',
+  searchPlaceholder: 'For example: Compare web search and standard chat in the DeepSeek API',
+  searchSessionOnly: 'One search at a time · Export results before refreshing',
+  searchStop: 'Stop search',
+  searchStart: 'Search',
+  searchEmptyTitle: 'An answer, with its evidence',
+  searchEmptyDescription: 'Inspect sources, copy your answer, or export Markdown with references.',
+  searchSources: 'Sources',
+  searchIncomplete: 'This result is incomplete; only the received content is shown.',
+  searchRunning: 'Searching and preparing an answer…',
+  searchFailed: 'Search failed. Check your configuration or connection and retry.',
+  searchFinished: 'Search finished',
+  searchExport: 'Export Markdown',
+  searchToolFailed: 'Some searches or page reads failed. Results may be incomplete.',
+  searchAnswer: 'Answer',
+  searchWaiting: 'Waiting for search results…',
+  searchNoAnswer: 'No answer was received. You can retry.',
+  searchSourcesWaiting: 'Sources will appear as search results arrive.',
+  searchNoSources:
+    'No sources were returned. This answer has not been verified against visible web evidence.',
+
   welcomeMessageChat250808: 'How can I help you?',
   contentCaveat: 'AI-generated, for reference only',
   expandSiderbarButton: 'Open sidebar',
@@ -14,7 +40,7 @@ export const en = {
     'Chats or attachments have not been saved locally. Retry before closing this page.',
   sessionDeleteFailed: 'Unable to delete this chat. Please try again.',
   settings: 'Settings',
-  appName: 'API usage demo',
+  appName: 'SeekStudio',
   deleteSessionModalContentTitle: 'Delete chat?',
   deleteSessionWithFilesDescription:
     'This chat and its uploaded files will be permanently deleted and cannot be recovered. Delete this chat?',

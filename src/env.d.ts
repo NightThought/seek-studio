@@ -13,3 +13,6 @@ declare module 'prismjs/components/*' {}
 
 /** KaTeX 化学公式扩展通过副作用注册到 KaTeX */
 declare module 'katex/contrib/mhchem' {}
+
+/** Whether the local dev proxy has a server-side key (never the key itself). */
+declare const __SERVER_API_KEY__: boolean

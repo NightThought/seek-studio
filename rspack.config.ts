@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@rspack/cli'
 import { rspack, type Configuration } from '@rspack/core'
 
 const dev = process.env.NODE_ENV !== 'production'
 const targets = ['chrome >= 105', 'edge >= 105', 'safari >= 16', 'firefox >= 110']
+// Only the local development server can read this secret; never define it in client code.
+const serverApiKey = dev ? process.env.DEEPSEEK_API_KEY?.trim() : undefined
 const root = path.dirname(fileURLToPath(import.meta.url))
 const { version } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8')
@@ -25,7 +28,7 @@ type ConfigOptions = {
 
 /** 创建构建配置，支持自定义 API 地址和开发服务器选项 */
 export const createConfig = ({
-  apiOrigin = 'https://api.deepseek.com',
+  apiOrigin = serverApiKey ? '/api' : 'https://api.deepseek.com',
   devServer,
 }: ConfigOptions = {}): Configuration => ({
   mode: dev ? 'development' : 'production',
@@ -80,13 +83,49 @@ export const createConfig = ({
       scriptLoading: 'defer',
       meta: { 'application-version': version },
     }),
-    new rspack.DefinePlugin({ __API_ORIGIN__: JSON.stringify(apiOrigin) }),
+    new rspack.DefinePlugin({
+      __API_ORIGIN__: JSON.stringify(apiOrigin),
+      __SERVER_API_KEY__: JSON.stringify(Boolean(serverApiKey)),
+    }),
     new rspack.CopyRspackPlugin({
       patterns: [{ from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' }],
     }),
   ],
   performance: { hints: false },
-  devServer: { port: 8090, ...devServer },
+  devServer: {
+    host: '127.0.0.1',
+    port: 8090,
+    static: false,
+    ...(serverApiKey
+      ? {
+          proxy: [
+            {
+              context: ['/api'],
+              target: 'https://api.deepseek.com',
+              changeOrigin: true,
+              pathRewrite: { '^/api': '' },
+              headers: { Authorization: `Bearer ${serverApiKey}`, 'x-api-key': serverApiKey },
+            },
+          ],
+          setupMiddlewares: (middlewares, server) => {
+            server.app?.use(
+              '/api',
+              (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+                // A local key must not be usable by a page opened on another origin.
+                if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
+                  res.statusCode = 403
+                  res.end('Cross-origin API requests are not allowed')
+                  return
+                }
+                next()
+              }
+            )
+            return middlewares
+          },
+        }
+      : {}),
+    ...devServer,
+  },
 })
 
 // eslint-disable-next-line import/no-default-export

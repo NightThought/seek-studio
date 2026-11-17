@@ -60,3 +60,54 @@
     height: var(--app-viewport-height, 100dvh);
   }
 }
+
+.searchContent {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.searchContent[hidden],
+.content[hidden] {
+  display: none;
+}
+.workspaceNav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.workspaceNav strong {
+  font-size: 15px;
+  margin-right: 16px;
+}
+.workspaceNav button {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.workspaceNav button[aria-pressed='true'] {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-static-blue-500);
+  font-weight: 600;
+}
+.workspaceNav button:focus-visible {
+  outline: 2px solid var(--dsw-static-blue-500);
+}
+.workspaceNav .workspaceSettings {
+  margin-left: auto;
+}
+@media (max-width: 600px) {
+  .workspaceNav {
+    gap: 4px;
+    padding: 10px 12px;
+  }
+  .workspaceNav strong {
+    display: none;
+  }
+}
