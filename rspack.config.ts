@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { createStudioMiddleware } from './server/index.mjs'
 import { defineConfig } from '@rspack/cli'
 import { rspack, type Configuration } from '@rspack/core'
 
@@ -107,23 +108,24 @@ export const createConfig = ({
               headers: { Authorization: `Bearer ${serverApiKey}`, 'x-api-key': serverApiKey },
             },
           ],
-          setupMiddlewares: (middlewares, server) => {
-            server.app?.use(
-              '/api',
-              (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-                // A local key must not be usable by a page opened on another origin.
-                if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
-                  res.statusCode = 403
-                  res.end('Cross-origin API requests are not allowed')
-                  return
-                }
-                next()
-              }
-            )
-            return middlewares
-          },
         }
       : {}),
+    setupMiddlewares: (middlewares, server) => {
+      const studio = createStudioMiddleware()
+      server.app?.use('/studio-api', studio)
+      server.server?.on('close', () => {
+        void studio.close()
+      })
+      server.app?.use('/api', (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
+          res.statusCode = 403
+          res.end('Cross-origin API requests are not allowed')
+          return
+        }
+        next()
+      })
+      return middlewares
+    },
     ...devServer,
   },
 })
