@@ -8,6 +8,12 @@ An open-source AI workspace powered by DeepSeek APIs, forked from [deepseek-ai/c
 
 The default workspace runs one web search at a time with streamed answers, source citations, stop/retry controls, copy, and Markdown export. Results survive switching to Chat but are not persisted across reloads. Missing sources, failed tools and incomplete answers are explicitly identified. The original chat features remain available under **Chat**.
 
+## Application workspace
+
+The Apps workspace adds OCR, multi-document analysis, two-voice podcasts, meeting transcription, webpage monitoring, information subscriptions, and sequential API workflows. Jobs, files, schedules, and results are stored locally in `.seek-studio/` (Git-ignored).
+
+These apps require the local backend started by `pnpm dev`; meeting/ASR processing also requires FFmpeg. Schedules require a server-side key and a running computer/service. Workflow APIs are token-protected and local-only. Static build output does not include this backend. See [the application guide](docs/apps.md) for scope and validation.
+
 ## Local API key
 
 Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`. Restart `pnpm dev` after changes. The local server injects this key into upstream requests through `/api`; it is never embedded in client JavaScript or browser storage. The dev server binds to `127.0.0.1`. `.env` is ignored by Git.

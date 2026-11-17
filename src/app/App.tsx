@@ -24,13 +24,14 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { AppsStudio } from '../components/apps/AppsStudio.js'
 import { SearchStudio } from '../components/searchStudio/SearchStudio.js'
 import { openSettings } from '../components/settings/settingsDialogState.js'
 import styles from './App.module.css'
 
 export const App = () => {
   const t = useTranslate()
-  const [workspace, setWorkspace] = useState<'search' | 'chat'>('search')
+  const [workspace, setWorkspace] = useState<'search' | 'chat' | 'apps'>('search')
   const isMobile = useIsMobile()
   const locale = useSettings((state) => state.locale)
   // 移动端侧边栏以独立抽屉管理开合状态
@@ -105,6 +106,13 @@ export const App = () => {
             </button>
             <button
               type="button"
+              aria-pressed={workspace === 'apps'}
+              onClick={() => setWorkspace('apps')}
+            >
+              应用工作台
+            </button>
+            <button
+              type="button"
               className={styles.workspaceSettings}
               onClick={() => openSettings('data')}
             >
@@ -126,6 +134,9 @@ export const App = () => {
           ) : null}
           <div className={styles.searchContent} hidden={workspace !== 'search'}>
             <SearchStudio />
+          </div>
+          <div className={styles.searchContent} hidden={workspace !== 'apps'}>
+            <AppsStudio />
           </div>
           <div className={styles.content} hidden={workspace !== 'chat'}>
             {siderCollapsed ? <CollapsedSider /> : null}
