@@ -56,6 +56,13 @@ export function createStudioMiddleware({
       const url = new URL(req.url, 'http://localhost'),
         parts = url.pathname.split('/').filter(Boolean)
       const method = req.method
+      if (method === 'GET' && url.pathname === '/audit') {
+        return json(res, 200, { entries: engine.state.audits })
+      }
+      if (method === 'POST' && url.pathname === '/audit') {
+        await engine.addAudit(JSON.parse(await body(req)))
+        return json(res, 201, { ok: true })
+      }
       if (method === 'GET' && url.pathname === '/state') {
         return json(res, 200, engine.snapshot())
       }
@@ -100,7 +107,7 @@ export function createStudioMiddleware({
         return json(
           res,
           202,
-          await engine.start(JSON.parse(await body(req)), engine.key || req.headers['x-studio-key'])
+          await engine.start(JSON.parse(await body(req)), req.headers['x-studio-key'] || engine.key)
         )
       }
       if (method === 'POST' && parts[0] === 'runs' && parts[2] === 'cancel') {

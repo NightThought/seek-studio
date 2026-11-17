@@ -3,7 +3,7 @@ import type { Locale } from '../settings.js'
 import { formatDate } from '../../utils/format.js'
 import { translate } from '../../i18n/index.js'
 
-const locationName = (location: UserLocation | null, locale: Locale): string => {
+export const locationName = (location: UserLocation | null, locale: Locale): string => {
   if (!location) {
     return ''
   }

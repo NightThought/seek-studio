@@ -4,27 +4,27 @@ English | [简体中文](README.zh-CN.md)
 
 An open-source AI workspace powered by DeepSeek APIs, forked from [deepseek-ai/chat-demo](https://github.com/deepseek-ai/chat-demo). This is a community project, not an official DeepSeek product.
 
-## AI Search Studio
+## Unified workspace
 
-The default workspace runs one web search at a time with streamed answers, source citations, stop/retry controls, copy, and Markdown export. Results survive switching to Chat but are not persisted across reloads. Missing sources, failed tools and incomplete answers are explicitly identified. The original chat features remain available under **Chat**.
+Choose Chat, Web Search, OCR, Documents, Podcasts, Meetings, Web Monitoring, Subscriptions, or Workflows in the upper-left selector. Conversation history stays on the left, messages and results in the center, and configuration and schedules on the right. Search shares persistent chat history. Links in user messages can be read in context.
 
-## Application workspace
+OCR displays Markdown alongside the original PDF. Selecting recognized text navigates to its source page and highlights the region when coordinates are available. Web monitoring accepts a URL and a natural-language goal, answers on the first visit, and compares later snapshots within the conversation.
 
-The Apps workspace adds OCR, multi-document analysis, two-voice podcasts, meeting transcription, webpage monitoring, information subscriptions, and sequential API workflows. Jobs, files, schedules, and results are stored locally in `.seek-studio/` (Git-ignored).
+Bottom-left Settings provides API keys, model selection, independent safety/metadata/automatic speech toggles, and exportable audit logs. Automatic speech preserves the written reply. Logs contain request metadata and outcomes, not prompts, answers or keys.
 
-These apps require the local backend started by `pnpm dev`; meeting/ASR processing also requires FFmpeg. Schedules require a server-side key and a running computer/service. Workflow APIs are token-protected and local-only. Static build output does not include this backend. See [the application guide](docs/apps.md) for scope and validation.
+Application jobs, files, schedules, and audit records are stored in `.seek-studio/` (Git-ignored). These apps require `pnpm dev`; meeting/ASR processing also requires FFmpeg. Schedules require a server-side key and a running computer/service. Workflow APIs are token-protected and local-only. See [the application guide](docs/apps.md).
 
 ## Local API key
 
 Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`. Restart `pnpm dev` after changes. The local server injects this key into upstream requests through `/api`; it is never embedded in client JavaScript or browser storage. The dev server binds to `127.0.0.1`. `.env` is ignored by Git.
 
-Without `.env`, enter your own key in Settings → Data management to use the original browser-direct mode.
+Settings → Model & features accepts a browser-specific key, which takes priority for manual requests. Clearing it restores the `.env` key. Schedules and published APIs use `.env`. Without `.env`, chat uses browser-direct requests.
 
 The env proxy is **local development only**. Static `pnpm build` output contains neither the server key nor a proxy and uses the key configured in the browser. A shared, multi-user deployment requires a separately authenticated backend.
 
 ## Getting started
 
-Install Node.js 22.12+ and pnpm, then run:
+Install Node.js 22.13+ and pnpm, then run:
 
 ```sh
 git clone https://github.com/NightThought/seek-studio.git
@@ -59,7 +59,7 @@ Your API key and settings are stored in the browser's localStorage. Conversation
 
 History import and export in Settings use ZIP archives. After confirmation and successful validation, importing replaces all local conversations and attachments. Exports include conversations and locally available original images, but exclude API keys, settings, and original non-image attachments. See the [history import/export documentation (Chinese)](src/services/chat/history/README.md) for the archive format and preservation details.
 
-Settings → Data → Delete all chats clears all local conversations, original attachments, and unsent drafts after confirmation. It stops ongoing replies and returns to a new chat. Your API key and settings are preserved; files already uploaded to the API service are not deleted.
+Settings → Data → Delete all chats clears browser chat conversations, original attachments, and unsent drafts (not server-side application jobs or audit records) after confirmation. It stops ongoing replies and returns to a new chat. Your API key and settings are preserved; files already uploaded to the API service are not deleted.
 
 ## Development
 
@@ -73,7 +73,7 @@ Settings → Data → Delete all chats clears all local conversations, original 
 
 [rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiOrigin, devServer })` to customize the API origin and development server proxy.
 
-Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
+Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Flash supports tools and files; Pro is available for plain-text chat with extensions disabled. Safety auditing requests `safety_check.level=high`; disabling it uses the API default (`low`). User metadata is sent as `latest_reminder` only when enabled. Supported attachment formats are determined by server-side validation.
 
 ```text
 src/

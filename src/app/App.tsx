@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslate } from '../i18n/index.js'
-import { useSettings } from '../services/settings.js'
+import { useSettings, setThinking, setSearch } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
   bindChatPersistence,
@@ -12,7 +12,6 @@ import {
 import { SearchPanel } from '../components/search/SearchPanel.js'
 import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
-import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
@@ -21,163 +20,129 @@ import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
-import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider } from '../components/sider/mobileSiderState.js'
+import { closeMobileSider, openMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import { AppsStudio } from '../components/apps/AppsStudio.js'
-import { SearchStudio } from '../components/searchStudio/SearchStudio.js'
-import { openSettings } from '../components/settings/settingsDialogState.js'
+import { functions, useWorkspace } from '../services/workspace.js'
 import styles from './App.module.css'
 
 export const App = () => {
-  const t = useTranslate()
-  const [workspace, setWorkspace] = useState<'search' | 'chat' | 'apps'>('search')
-  const isMobile = useIsMobile()
-  const locale = useSettings((state) => state.locale)
-  // 移动端侧边栏以独立抽屉管理开合状态
-  const siderCollapsed = useSettings((state) => state.siderCollapsed) && !isMobile
-  const ready = useChatStore((state) => state.ready)
-  const initError = useChatStore((state) => state.initError)
-  const saveError = useChatStore((state) => Object.values(state.sessionSaveErrors).some(Boolean))
-  const importingHistory = useChatStore((state) => state.importingHistory)
-  const session = useChatStore((state) =>
-    state.activeId !== null && Object.hasOwn(state.sessionCache, state.activeId)
-      ? state.sessionCache[state.activeId]
-      : undefined
-  )
-  const sessionLoadError = useChatStore((state) =>
-    state.activeId === null ? false : state.sessionLoadErrors[state.activeId] === true
+  const t = useTranslate(),
+    isMobile = useIsMobile(),
+    settings = useSettings()
+  const mode = useWorkspace((s) => s.function),
+    configOpen = useWorkspace((s) => s.configOpen)
+  const chat = mode === 'chat' || mode === 'search'
+  const [configHost, setConfigHost] = useState<HTMLDivElement | null>(null)
+  const ready = useChatStore((s) => s.ready),
+    initError = useChatStore((s) => s.initError)
+  const activeId = useChatStore((s) => s.activeId)
+  const session = useChatStore((s) => (s.activeId ? s.sessionCache[s.activeId] : undefined))
+  const streaming = useChatStore((s) => (s.activeId ? Boolean(s.streaming[s.activeId]) : false))
+  const saveError = useChatStore((s) => Object.values(s.sessionSaveErrors).some(Boolean))
+  const loadError = useChatStore((s) =>
+    s.activeId ? Boolean(s.sessionLoadErrors[s.activeId]) : false
   )
   const frameRef = useMobileViewport(isMobile)
-  const streaming = useChatStore((state) =>
-    state.activeId === null ? false : Object.hasOwn(state.streaming, state.activeId)
-  )
-  const activeId = useChatStore((state) => state.activeId)
-
   usePreventPageScroll(isMobile)
-
   useEffect(() => {
-    document.documentElement.lang = locale
-  }, [locale])
-
-  // 文件数、存储空间达到上限时，附件上只显示「上传失败」，原因用 toast 说明
+    document.documentElement.lang = settings.locale
+  }, [settings.locale])
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])
-
-  // 搜索结果面板只属于当前会话
-  useEffect(closeSearchPanel, [activeId, workspace])
-  // 切换会话时停止朗读
-  useEffect(stopReadAloud, [activeId, workspace])
-  // 移动端选中会话、切换布局后收起抽屉
-  useEffect(closeMobileSider, [activeId, isMobile])
-
+  useEffect(closeSearchPanel, [activeId, mode])
+  useEffect(stopReadAloud, [activeId, mode])
+  useEffect(closeMobileSider, [activeId, mode, isMobile])
   useEffect(() => {
     void initChat()
-    // 首次打开先在设置里输入 API Key
     ensureApiKey()
   }, [])
-
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {workspace === 'chat' ? (
-          isMobile ? (
-            <MobileSider />
-          ) : siderCollapsed ? null : (
-            <Sider />
-          )
-        ) : null}
+        {isMobile ? <MobileSider /> : <Sider />}
         <main className={styles.main}>
-          <nav className={styles.workspaceNav} aria-label={t('studioNavigation')}>
-            <strong>SeekStudio</strong>
-            <button
-              type="button"
-              aria-pressed={workspace === 'search'}
-              onClick={() => setWorkspace('search')}
+          <header className={styles.unifiedHeader}>
+            {isMobile ? (
+              <Button size="s" variant="outlined" onClick={openMobileSider}>
+                历史与功能
+              </Button>
+            ) : null}
+            <strong>{functions.find((f) => f.value === mode)?.label}</strong>
+            <span>{settings.model}</span>
+            <Button
+              size="s"
+              variant="outlined"
+              onClick={() => useWorkspace.setState({ configOpen: !configOpen })}
             >
-              {t('searchStudio')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={workspace === 'chat'}
-              onClick={() => setWorkspace('chat')}
-            >
-              {t('studioChat')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={workspace === 'apps'}
-              onClick={() => setWorkspace('apps')}
-            >
-              应用工作台
-            </button>
-            <button
-              type="button"
-              className={styles.workspaceSettings}
-              onClick={() => openSettings('data')}
-            >
-              {t('settings')}
-            </button>
-          </nav>
+              {configOpen ? '收起配置' : '功能配置'}
+            </Button>
+          </header>
           {saveError ? (
             <div className={styles.saveError} role="alert">
-              <span>{t('sessionSaveFailed')}</span>
-              <Button
-                variant="outlined"
-                size="s"
-                disabled={importingHistory}
-                onClick={retrySaveSessions}
-              >
+              {t('sessionSaveFailed')}
+              <Button size="s" onClick={retrySaveSessions}>
                 {t('retry')}
               </Button>
             </div>
           ) : null}
-          <div className={styles.searchContent} hidden={workspace !== 'search'}>
-            <SearchStudio />
-          </div>
-          <div className={styles.searchContent} hidden={workspace !== 'apps'}>
-            <AppsStudio />
-          </div>
-          <div className={styles.content} hidden={workspace !== 'chat'}>
-            {siderCollapsed ? <CollapsedSider /> : null}
-            {!ready || (activeId !== null && !session) ? (
-              <div className={styles.loadingView}>
-                {isMobile ? <MobileHeader /> : null}
-                <div className={styles.loadingState} role="status" aria-live="polite">
-                  <span>
-                    {(!ready ? initError : sessionLoadError)
-                      ? t(!ready ? 'sessionListLoadFailed' : 'sessionLoadFailed')
-                      : t('sessionLoading')}
-                  </span>
-                  {(!ready ? initError : sessionLoadError) ? (
-                    <Button
-                      variant="outlined"
-                      size="m"
-                      onClick={() => {
-                        if (!ready) {
-                          void initChat()
-                        } else if (activeId !== null) {
-                          selectSession(activeId)
-                        }
-                      }}
-                    >
-                      {t('retry')}
-                    </Button>
-                  ) : null}
-                </div>
+          <div className={styles.content} hidden={!chat}>
+            {!ready || (activeId && !session) ? (
+              <div className={styles.loadingState} role="status">
+                {initError || loadError ? t('sessionLoadFailed') : t('sessionLoading')}
+                <Button
+                  size="s"
+                  variant="outlined"
+                  onClick={() => (activeId ? selectSession(activeId) : void initChat())}
+                >
+                  {t('retry')}
+                </Button>
               </div>
             ) : session ? (
-              <SessionView
-                session={session}
-                streaming={streaming}
-                siderCollapsed={siderCollapsed}
-              />
+              <SessionView session={session} streaming={streaming} siderCollapsed={false} />
             ) : (
               <Welcome />
             )}
           </div>
+          <div className={styles.searchContent} hidden={chat}>
+            <AppsStudio configHost={chat ? null : configHost} />
+          </div>
         </main>
-        {workspace === 'chat' ? <SearchPanel /> : null}
+        <aside className={styles.configuration} hidden={!configOpen} aria-label="功能配置">
+          <div className={styles.configHeading}>
+            功能配置
+            <button type="button" onClick={() => useWorkspace.setState({ configOpen: false })}>
+              关闭
+            </button>
+          </div>
+          {chat ? (
+            <div className={styles.chatConfig}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.search}
+                  onChange={(e) => setSearch(e.target.checked)}
+                />
+                联网搜索
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.thinking}
+                  onChange={(e) => setThinking(e.target.checked)}
+                />
+                深度思考
+              </label>
+              <p>
+                消息中的链接会自动读取，并结合当前对话上下文作答。联网和文件功能使用 DeepSeek
+                Flash。
+              </p>
+              <p>模型、安全审计、用户元信息和自动朗读可在左下角「设置」中配置。</p>
+            </div>
+          ) : null}
+          <div ref={setConfigHost} />
+        </aside>
+        {chat ? <SearchPanel /> : null}
       </div>
       <SettingsDialog />
       <Toast />

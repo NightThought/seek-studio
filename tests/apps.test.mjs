@@ -415,3 +415,110 @@ test('local HTTP API: uploads, run results, origin guard, published auth and rev
   const state = await (await call('/state')).json()
   assert.ok(!JSON.stringify(state).includes('private-secret'))
 })
+
+test('monitor extracts target URL, answers on first visit, retains conversation and compares later snapshots', async (t) => {
+  const { engine, provider } = await setup(t)
+  const first = await run(engine, {
+    kind: 'monitor',
+    input: { goal: '检查 https://example.org/releases，有没有支持离线使用？' },
+    executionOptions: { safetyEnabled: false, metadataEnabled: true, location: '杭州' },
+  })
+  assert.equal(first.status, 'done', first.error)
+  assert.equal(first.input.url, 'https://example.org/releases')
+  assert.match(provider.calls.find((c) => c[0] === 'chat')[1], /离线使用/)
+  assert.equal(provider.options.safetyEnabled, false)
+  provider.page = 'original content\nOffline support added'
+  const next = await run(engine, {
+    kind: 'monitor',
+    conversationId: first.conversationId,
+    input: { url: first.input.url, goal: '和刚才相比更新了什么？' },
+  })
+  assert.equal(next.status, 'done', next.error)
+  assert.equal(next.result.changed, true)
+  assert.deepEqual(next.result.diff.added, ['Offline support added'])
+  assert.equal(provider.context.length, 2)
+  assert.match(provider.context[0].content, /离线使用/)
+  assert.match(provider.calls.at(-1)[1], /和刚才相比/)
+  assert.equal(engine.snapshot().runs[0].conversationId, first.conversationId)
+})
+
+test('settings control model, safety auditing, metadata, read-url tools and refusal records', async () => {
+  const { executionOptions } = await import('../server/policy.mjs')
+  const requests = [],
+    audits = []
+  let refusal = false
+  const provider = new DeepSeekProvider('secret', {
+    fetchImpl: async (_, init) => {
+      requests.push(JSON.parse(init.body))
+      return new Response(
+        JSON.stringify({
+          id: 'req-1',
+          stop_reason: refusal ? 'refusal' : 'end_turn',
+          content: [{ type: 'text', text: 'answer' }],
+          usage: { output_tokens_details: { safety_tokens: 7 } },
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    },
+  })
+  provider.onAudit = (e) => audits.push(e)
+  provider.options = executionOptions({ metadataEnabled: true, location: '杭州' })
+  provider.context = [{ role: 'user', content: 'earlier question' }]
+  await provider.chat('请阅读 https://example.org')
+  assert.equal(requests[0].safety_check.level, 'high')
+  assert.ok(
+    requests[0].messages.some((m) => m.role === 'latest_reminder' && m.content.includes('杭州'))
+  )
+  assert.ok(requests[0].tools.some((t) => t.name === 'deepseek_read_url'))
+  assert.equal(audits[0].status, 'completed')
+  assert.equal(audits[0].safetyTokens, 7)
+  refusal = true
+  await assert.rejects(provider.chat('blocked'), /拒绝/)
+  assert.equal(audits[1].status, 'refused')
+  refusal = false
+  provider.options = executionOptions({
+    model: 'deepseek-v4-pro',
+    safetyEnabled: false,
+    metadataEnabled: false,
+  })
+  await provider.chat('plain')
+  assert.equal(requests[2].model, 'deepseek-v4-pro')
+  assert.equal(requests[2].safety_check.level, 'low')
+  assert.equal(
+    requests[2].messages.some((m) => m.role === 'latest_reminder'),
+    false
+  )
+  assert.equal(requests[2].tools, undefined)
+  assert.equal(audits.length, 2)
+  await assert.rejects(provider.chat('files', { files: ['f'] }), /Flash/)
+})
+
+test('scheduled recipes preserve execution settings and audit logs persist without arbitrary content', async (t) => {
+  const { engine, dir } = await setup(t)
+  const recipe = await engine.recipe({
+    name: 'goal',
+    kind: 'monitor',
+    input: { goal: 'https://example.org 检查价格变化' },
+    executionOptions: {
+      safetyEnabled: false,
+      metadataEnabled: true,
+      location: '杭州',
+      apiKey: 'never-store',
+    },
+  })
+  const result = await run(engine, { recipeId: recipe.id })
+  assert.equal(result.executionOptions.safetyEnabled, false)
+  assert.equal(result.executionOptions.metadataEnabled, true)
+  await engine.addAudit({
+    status: 'refused',
+    model: 'deepseek-flash',
+    source: 'test',
+    prompt: 'private-question',
+    apiKey: 'never-store',
+  })
+  const restored = await new StudioEngine({ dir, key: 'secret' }).init()
+  assert.equal(restored.state.audits.length, 1)
+  const saved = await readFile(path.join(dir, 'state.json'), 'utf8')
+  assert.ok(!saved.includes('private-question'))
+  assert.ok(!saved.includes('never-store'))
+})

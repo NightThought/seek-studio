@@ -11,7 +11,7 @@
     "type": "tsc -p tsconfig.json",
     "lint": "oxlint src server rspack.config.ts",
     "format": "oxfmt --write .",
-    "test": "tsc -p tests/tsconfig.json && node --test tests/search.test.mjs tests/apps.test.mjs"
+    "test": "tsc -p tests/tsconfig.json && node --test tests/search.test.mjs tests/apps.test.mjs tests/workspace.test.mjs"
   },
   "dependencies": {
     "@types/katex": "^0.16.5",
@@ -30,6 +30,7 @@
     "mermaid": "11.10.1",
     "micromark-extension-gfm": "3.0.0",
     "micromark-extension-llm-math": "3.1.0",
+    "pdfjs-dist": "^6.5.438",
     "prismjs": "1.30.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

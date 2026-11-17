@@ -81,7 +81,9 @@ export function validateInput(kind, input = {}) {
     }
   }
   if (kind === 'monitor') {
-    out.url = publicUrl(input.url)
+    out.goal = typeof input.goal === 'string' ? text(input.goal, '监测目标', 8000, false) : ''
+    const detected = out.goal.match(/https?:\/\/[^\s<>，。；）)]+/i)?.[0]
+    out.url = publicUrl(input.url || detected)
     out.ignore = typeof input.ignore === 'string' ? text(input.ignore, '忽略文本', 1000, false) : ''
   }
   if (kind === 'subscription') {

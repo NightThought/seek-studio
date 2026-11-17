@@ -89,7 +89,13 @@ export const createConfig = ({
       __SERVER_API_KEY__: JSON.stringify(Boolean(serverApiKey)),
     }),
     new rspack.CopyRspackPlugin({
-      patterns: [{ from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' }],
+      patterns: [
+        { from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' },
+        {
+          from: path.resolve(root, 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs'),
+          to: 'pdf.worker.min.mjs',
+        },
+      ],
     }),
   ],
   performance: { hints: false },
@@ -105,7 +111,20 @@ export const createConfig = ({
               target: 'https://api.deepseek.com',
               changeOrigin: true,
               pathRewrite: { '^/api': '' },
-              headers: { Authorization: `Bearer ${serverApiKey}`, 'x-api-key': serverApiKey },
+              on: {
+                proxyReq: (proxyReq, req) => {
+                  if (
+                    !String(
+                      req.headers['x-api-key'] ||
+                        req.headers.authorization?.replace(/^Bearer\s*/i, '') ||
+                        ''
+                    ).trim()
+                  ) {
+                    proxyReq.setHeader('Authorization', `Bearer ${serverApiKey}`)
+                    proxyReq.setHeader('x-api-key', serverApiKey)
+                  }
+                },
+              },
             },
           ],
         }

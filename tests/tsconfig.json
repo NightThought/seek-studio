@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "noEmit": false, "outDir": "../.cache/tests", "rootDir": "../src" },
-  "include": ["../src/services/search/task.ts", "../src/env.d.ts"]
+  "include": ["../src/services/search/task.ts", "../src/components/apps/ocr.ts", "../src/env.d.ts"]
 }

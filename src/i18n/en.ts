@@ -1,6 +1,8 @@
 import type { zh } from './zh.js'
 
 export const en = {
+  settingModel: 'Model & features',
+  settingAudit: 'Safety audit',
   studioChat: 'Chat',
   studioNavigation: 'Workspace navigation',
   serverApiKey: 'Using the API key from the local .env file. Restart the dev server after changes.',

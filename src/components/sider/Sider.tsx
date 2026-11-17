@@ -1,13 +1,12 @@
+import { functions, selectFunction, useWorkspace } from '../../services/workspace.js'
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { IconPanelLeftOutline16, IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
-import { setSiderCollapsed } from '../../services/settings.js'
+import { IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
 import { groupSessions } from '../../services/chat/sessionGroups.js'
 import { newChat, removeSession, useChatStore } from '../../services/chat/store.js'
 import type { SessionSummary } from '../../services/chat/types.js'
 import { Button } from '../base/Button.js'
-import { IconButton } from '../base/IconButton.js'
 import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
@@ -18,6 +17,14 @@ import styles from './Sider.module.css'
 /** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
 export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
+  const workspace = useWorkspace()
+  const appThreads = [
+    ...new Map(
+      [...(workspace.snapshot?.runs ?? [])]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((r) => [r.conversationId ?? r.id, r])
+    ).values(),
+  ].sort((a, b) => b.createdAt - a.createdAt)
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
@@ -53,19 +60,35 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
     <div className={clsx(styles.sider, mobile && styles.mobile)}>
       <div className={styles.top}>
         <div className={styles.appName}>{t('appName')}</div>
-        <IconButton
-          size="m"
-          icon={<IconPanelLeftOutline16 />}
-          tooltip={t('collapseSiderbarButton')}
-          tooltipPlacement="bottom"
-          onClick={() => (mobile ? closeMobileSider() : setSiderCollapsed(true))}
-        />
+        {mobile ? (
+          <button type="button" onClick={closeMobileSider}>
+            关闭
+          </button>
+        ) : null}
       </div>
+      <label className={styles.functionPicker}>
+        功能
+        <select
+          aria-label="选择功能"
+          value={workspace.function}
+          onChange={(e) => {
+            selectFunction(e.target.value as typeof workspace.function)
+            closeMobileSider()
+          }}
+        >
+          {functions.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <button
         type="button"
         className={styles.newChat}
         onClick={() => {
           newChat()
+          useWorkspace.setState({ conversationId: null })
           closeMobileSider()
         }}
       >
@@ -76,6 +99,31 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
       </button>
       <div className={styles.listWrap}>
         <div className={styles.list}>
+          {appThreads.length ? (
+            <div className={styles.section}>
+              <div className={styles.sectionHeader}>应用会话</div>
+              {appThreads.map((run) => (
+                <button
+                  type="button"
+                  key={run.conversationId ?? run.id}
+                  className={styles.appThread}
+                  aria-current={
+                    workspace.conversationId === (run.conversationId ?? run.id) ? 'true' : undefined
+                  }
+                  onClick={() => {
+                    selectFunction(run.kind, run.conversationId ?? run.id)
+                    closeMobileSider()
+                  }}
+                >
+                  <span>{run.message || functions.find((f) => f.value === run.kind)?.label}</span>
+                  <small>
+                    {functions.find((f) => f.value === run.kind)?.label} ·{' '}
+                    {new Date(run.createdAt).toLocaleDateString()}
+                  </small>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {groups.map((group) => (
             <div key={group.key} className={styles.section}>
               <div className={styles.sectionHeader}>{group.label}</div>
@@ -83,7 +131,10 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
                 <SessionItem
                   key={session.id}
                   session={session}
-                  active={session.id === activeId}
+                  active={
+                    (workspace.function === 'chat' || workspace.function === 'search') &&
+                    session.id === activeId
+                  }
                   onDelete={() => setDeleting(session)}
                 />
               ))}
@@ -92,7 +143,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
         </div>
       </div>
       <div className={styles.bottom}>
-        <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
+        <button type="button" className={styles.settings} onClick={() => openSettings('model')}>
           <span className={styles.settingsIcon}>
             <IconSettingsOutline16 />
           </span>

@@ -1,3 +1,4 @@
+import { ModelSettings, AuditLog } from './ModelSettings.js'
 import clsx from 'clsx'
 import { useRef, useState, type ReactNode } from 'react'
 import {
@@ -51,6 +52,8 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
     label: 'settingDialogAsideGeneralOptionLabel',
     icon: <IconSettingsOutline16 />,
   },
+  { value: 'model', label: 'settingModel', icon: <IconSettingsOutline16 /> },
+  { value: 'audit', label: 'settingAudit', icon: <IconDataOutline16 /> },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
 
@@ -94,7 +97,15 @@ const SettingsContent = () => {
           ))}
         </div>
         <div role="tabpanel" className={styles.content}>
-          {section === 'general' ? (
+          {section === 'model' ? (
+            <>
+              <ApiKeyField editor={apiKeyEditor} />
+              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
+              <ModelSettings />
+            </>
+          ) : section === 'audit' ? (
+            <AuditLog />
+          ) : section === 'general' ? (
             <>
               <ThemeSetting />
               <LocaleSetting />
@@ -103,7 +114,6 @@ const SettingsContent = () => {
             </>
           ) : (
             <>
-              <ApiKeyField editor={apiKeyEditor} />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
               <SettingCell
@@ -121,7 +131,6 @@ const SettingsContent = () => {
                   </Button>
                 }
               />
-              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
           )}
         </div>

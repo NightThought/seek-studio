@@ -1,4 +1,6 @@
 export const zh = {
+  settingModel: '模型与功能',
+  settingAudit: '安全审计',
   studioChat: '对话',
   studioNavigation: '工作台导航',
   serverApiKey: '正在使用本地 .env 配置的 API Key，修改后请重启开发服务。',

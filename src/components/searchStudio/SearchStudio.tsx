@@ -190,7 +190,7 @@ const SearchResult = ({
         <div className={styles.notice} role="alert">
           {notice?.text || t('searchFailed')}
           {notice?.action === 'apiKey' ? (
-            <Button size="s" variant="outlined" onClick={() => openSettings('data')}>
+            <Button size="s" variant="outlined" onClick={() => openSettings('model')}>
               {t('settings')}
             </Button>
           ) : null}

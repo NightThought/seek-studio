@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { ChatModel } from './api/types.js'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
@@ -9,6 +10,10 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 
 /** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
 type Settings = {
+  model: ChatModel
+  safetyEnabled: boolean
+  metadataEnabled: boolean
+  autoRead: boolean
   apiKey: string | null
   locale: Locale
   themePreference: ThemePreference
@@ -20,6 +25,10 @@ type Settings = {
 }
 
 const KEYS = {
+  model: 'seek-studio:model',
+  safetyEnabled: 'seek-studio:safety',
+  metadataEnabled: 'seek-studio:metadata',
+  autoRead: 'seek-studio:auto-read',
   apiKey: 'chat-demo:api-key',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
@@ -88,6 +97,10 @@ const initialThemePreference = (): ThemePreference => {
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
 export const useSettings = create<Settings>(() => ({
+  model: read(KEYS.model) === 'deepseek-v4-pro' ? 'deepseek-v4-pro' : 'deepseek-flash',
+  safetyEnabled: read(KEYS.safetyEnabled) !== 'false',
+  metadataEnabled: read(KEYS.metadataEnabled) === 'true',
+  autoRead: read(KEYS.autoRead) === 'true',
   apiKey: read(KEYS.apiKey),
   locale: initialLocale(),
   location: initialLocation(),
@@ -137,4 +150,21 @@ export const setSearch = (search: boolean) => {
 export const setSiderCollapsed = (siderCollapsed: boolean) => {
   write(KEYS.siderCollapsed, String(siderCollapsed))
   useSettings.setState({ siderCollapsed })
+}
+
+export const setModel = (model: ChatModel) => {
+  write(KEYS.model, model)
+  useSettings.setState({ model })
+}
+export const setSafetyEnabled = (safetyEnabled: boolean) => {
+  write(KEYS.safetyEnabled, String(safetyEnabled))
+  useSettings.setState({ safetyEnabled })
+}
+export const setMetadataEnabled = (metadataEnabled: boolean) => {
+  write(KEYS.metadataEnabled, String(metadataEnabled))
+  useSettings.setState({ metadataEnabled })
+}
+export const setAutoRead = (autoRead: boolean) => {
+  write(KEYS.autoRead, String(autoRead))
+  useSettings.setState({ autoRead })
 }

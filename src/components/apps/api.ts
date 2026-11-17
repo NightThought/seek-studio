@@ -17,6 +17,7 @@ export type AppInput = {
   topic?: string
   script?: string
   action?: string
+  goal?: string
   url?: string
   ignore?: string
   preferences?: string
@@ -45,6 +46,8 @@ export type Run = {
   id: string
   kind: AppKind
   input: AppInput
+  conversationId?: string
+  message?: string
   recipeId: string | null
   status: 'running' | 'done' | 'error' | 'cancelled'
   createdAt: number

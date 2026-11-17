@@ -1,3 +1,4 @@
+import { selectFunction } from '../../services/workspace.js'
 import clsx from 'clsx'
 import { memo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
@@ -51,6 +52,7 @@ export const SessionItem = memo(function SessionItem({
     <div
       className={clsx(styles.item, active && styles.active)}
       onClick={() => {
+        selectFunction('chat')
         selectSession(session.id)
         closeMobileSider()
       }}
