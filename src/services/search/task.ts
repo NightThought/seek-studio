@@ -4,12 +4,16 @@ import { applyEvent, settleReply } from '../chat/reply.js'
 import type { AssistantMessage } from '../chat/types.js'
 import { buildReplyView } from '../chat/view.js'
 
-export const createSearchRequest = (query: string, reminder: string): CreateMessageRequest => ({
+export const createSearchRequest = (
+  query: string,
+  reminder: string | undefined,
+  safetyEnabled = true
+): CreateMessageRequest => ({
   model: 'deepseek-flash',
   system:
     'You are SeekStudio, an AI search assistant powered by DeepSeek. Search the web for the user question, prefer primary sources, and cite evidence. Distinguish facts from inference. If sources are unavailable or disagree, say so. Respond in the user’s language.',
   messages: [
-    { role: 'latest_reminder', content: reminder },
+    ...(reminder ? [{ role: 'latest_reminder' as const, content: reminder }] : []),
     { role: 'user', content: query },
   ],
   thinking: { type: 'disabled' },
@@ -17,16 +21,17 @@ export const createSearchRequest = (query: string, reminder: string): CreateMess
     { type: 'deepseek_web_search', name: 'deepseek_web_search' },
     { type: 'deepseek_read_url', name: 'deepseek_read_url' },
   ],
-  safety_check: { level: 'high' },
+  safety_check: { level: safetyEnabled ? 'high' : 'low' },
 })
 
 /** One request, no automatic retries that could duplicate billed searches. */
 export const runSearch = async (
   apiKey: string,
   query: string,
-  reminder: string,
+  reminder: string | undefined,
   signal: AbortSignal,
-  onUpdate: (reply: AssistantMessage) => void
+  onUpdate: (reply: AssistantMessage) => void,
+  safetyEnabled = true
 ): Promise<AssistantMessage> => {
   let reply: AssistantMessage = {
     id: crypto.randomUUID(),
@@ -42,7 +47,11 @@ export const runSearch = async (
   onUpdate(reply)
   const indexes = new Map<number, number>()
   try {
-    for await (const event of streamMessage(apiKey, createSearchRequest(query, reminder), signal)) {
+    for await (const event of streamMessage(
+      apiKey,
+      createSearchRequest(query, reminder, safetyEnabled),
+      signal
+    )) {
       if (signal.aborted) {
         break
       }

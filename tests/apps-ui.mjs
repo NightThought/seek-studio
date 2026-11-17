@@ -195,7 +195,19 @@ try {
   })
   await page.goto('http://127.0.0.1:8090/')
   const choose = async (value) => {
-    await page.getByLabel('选择功能', { exact: true }).selectOption(value)
+    const labels = {
+      chat: '对话',
+      search: '联网搜索',
+      ocr: 'OCR 识别',
+      documents: '文档分析',
+      podcast: '播客生成',
+      meeting: '会议助手',
+      monitor: '网页监测',
+      subscription: '信息订阅',
+      workflow: '工作流',
+    }
+    await page.getByRole('button', { name: '选择功能', exact: true }).click()
+    await page.getByRole('option', { name: labels[value], exact: true }).click()
   }
   const result = () => page.getByRole('region', { name: '任务结果' }).last().waitFor()
   const upload = async () => {
@@ -284,7 +296,10 @@ try {
   await page.getByLabel('用户元信息标记', { exact: true }).check()
   await page.getByLabel('自动朗读回答', { exact: true }).check()
   await page.keyboard.press('Escape')
-  await choose('search')
+  await choose('chat')
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   const composer = page.locator('main textarea:visible')
   await composer.fill('阅读 https://example.org 并总结')
   await composer.press('Enter')
@@ -319,17 +334,35 @@ try {
   assert.equal(ttsCount, 1)
   assert.equal(audits.length, 1)
   await page.screenshot({ path: '.cache/unified-chat.png', fullPage: true })
+  await choose('search')
+  await page.getByRole('heading', { name: 'AI 搜索工作台', exact: true }).waitFor()
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
+  await page.getByLabel('你想了解什么？', { exact: true }).fill('搜索 Demo 验证')
+  await page.getByRole('button', { name: '开始搜索', exact: true }).click()
+  await page.getByRole('button', { name: '导出 Markdown', exact: true }).waitFor()
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(requests.length, 3)
+  assert.equal(requests[2].safety_check.level, 'low')
+  assert.equal(requests[2].messages.length, 1)
+  assert.equal(ttsCount, 1)
+  await choose('chat')
+  await choose('search')
+  await page.getByRole('button', { name: '导出 Markdown', exact: true }).waitFor()
+  await page.screenshot({ path: '.cache/search-demo.png', fullPage: true })
+  await page.getByRole('button', { name: '选择功能', exact: true }).click()
+  await page.screenshot({ path: '.cache/function-selector.png', fullPage: true })
+  await page.keyboard.press('Escape')
   await page.reload()
   await page.getByRole('button', { name: '设置', exact: true }).click()
   assert.equal(await page.getByLabel('模型内容安全与审计', { exact: true }).isChecked(), false)
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: '历史与功能', exact: true }).click()
+  await choose('ocr')
   await page
     .getByRole('complementary', { name: '功能配置' })
     .getByRole('button', { name: '关闭', exact: true })
     .click()
-  await page.getByRole('button', { name: '历史与功能', exact: true }).click()
-  await choose('ocr')
   await page.getByRole('button', { name: '功能配置', exact: true }).click()
   await page.locator('input[aria-label="上传文件"]').waitFor()
   await page.screenshot({ path: '.cache/unified-mobile.png', fullPage: true })

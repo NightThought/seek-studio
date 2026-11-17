@@ -1,4 +1,5 @@
 import { functions, selectFunction, useWorkspace } from '../../services/workspace.js'
+import { Select } from '../base/Select.js'
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
@@ -66,27 +67,26 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
           </button>
         ) : null}
       </div>
-      <label className={styles.functionPicker}>
-        功能
-        <select
-          aria-label="选择功能"
+      <div className={styles.functionPicker}>
+        <span>功能</span>
+        <Select
+          ariaLabel="选择功能"
+          className={styles.functionSelect}
           value={workspace.function}
-          onChange={(e) => {
-            selectFunction(e.target.value as typeof workspace.function)
+          options={functions}
+          onChange={(value) => {
+            selectFunction(value)
             closeMobileSider()
           }}
-        >
-          {functions.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
-      </label>
+        />
+      </div>
       <button
         type="button"
         className={styles.newChat}
         onClick={() => {
+          if (workspace.function === 'search') {
+            selectFunction('chat')
+          }
           newChat()
           useWorkspace.setState({ conversationId: null })
           closeMobileSider()

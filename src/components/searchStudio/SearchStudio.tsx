@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
+import { useWorkspace } from '../../services/workspace.js'
+import { autoReadReply, prepareAutoRead } from '../../services/speech/readAloud.js'
+import { getReplyText } from '../../services/chat/reply.js'
 import { useSettings } from '../../services/settings.js'
 import { createLatestReminder } from '../../services/chat/latestReminder.js'
 import { describeReply } from '../../services/chat/describe.js'
@@ -27,18 +30,27 @@ export const SearchStudio = () => {
     if (controller.current || !question.trim() || !ensureApiKey()) {
       return
     }
+    prepareAutoRead()
     const request = new AbortController()
     controller.current = request
     setSubmitted(question.trim())
     const settings = useSettings.getState()
     try {
-      await runSearch(
+      const result = await runSearch(
         settings.apiKey ?? '',
         question.trim(),
-        createLatestReminder(settings),
+        settings.metadataEnabled ? createLatestReminder(settings) : undefined,
         request.signal,
-        setReply
+        setReply,
+        settings.safetyEnabled
       )
+      if (
+        useWorkspace.getState().function === 'search' &&
+        result.status === 'done' &&
+        result.stopReason !== 'refusal'
+      ) {
+        autoReadReply(result.id, getReplyText(result))
+      }
     } finally {
       controller.current = null
     }

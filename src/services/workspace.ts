@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type { AppKind, Snapshot } from '../components/apps/api.js'
-import { setSearch } from './settings.js'
 import { stopReadAloud } from './speech/readAloud.js'
 export type WorkspaceFunction = 'chat' | 'search' | AppKind
 export const functions: { value: WorkspaceFunction; label: string }[] = [
@@ -23,6 +22,5 @@ export const useWorkspace = create(() => ({
 export const selectFunction = (value: WorkspaceFunction, conversationId: string | null = null) => {
   stopReadAloud()
   useWorkspace.setState({ function: value, conversationId })
-  setSearch(value === 'search')
 }
 export const setAppSnapshot = (snapshot: Snapshot) => useWorkspace.setState({ snapshot })

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslate } from '../i18n/index.js'
-import { useSettings, setThinking, setSearch } from '../services/settings.js'
+import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
   bindChatPersistence,
@@ -22,6 +22,7 @@ import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { closeMobileSider, openMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { SearchStudio } from '../components/searchStudio/SearchStudio.js'
 import { AppsStudio } from '../components/apps/AppsStudio.js'
 import { functions, useWorkspace } from '../services/workspace.js'
 import styles from './App.module.css'
@@ -32,7 +33,8 @@ export const App = () => {
     settings = useSettings()
   const mode = useWorkspace((s) => s.function),
     configOpen = useWorkspace((s) => s.configOpen)
-  const chat = mode === 'chat' || mode === 'search'
+  const chat = mode === 'chat'
+  const app = !chat && mode !== 'search'
   const [configHost, setConfigHost] = useState<HTMLDivElement | null>(null)
   const ready = useChatStore((s) => s.ready),
     initError = useChatStore((s) => s.initError)
@@ -69,14 +71,16 @@ export const App = () => {
               </Button>
             ) : null}
             <strong>{functions.find((f) => f.value === mode)?.label}</strong>
-            <span>{settings.model}</span>
-            <Button
-              size="s"
-              variant="outlined"
-              onClick={() => useWorkspace.setState({ configOpen: !configOpen })}
-            >
-              {configOpen ? '收起配置' : '功能配置'}
-            </Button>
+            <span>{mode === 'search' ? 'deepseek-flash' : settings.model}</span>
+            {app ? (
+              <Button
+                size="s"
+                variant="outlined"
+                onClick={() => useWorkspace.setState({ configOpen: !configOpen })}
+              >
+                {configOpen ? '收起配置' : '功能配置'}
+              </Button>
+            ) : null}
           </header>
           {saveError ? (
             <div className={styles.saveError} role="alert">
@@ -104,42 +108,20 @@ export const App = () => {
               <Welcome />
             )}
           </div>
-          <div className={styles.searchContent} hidden={chat}>
-            <AppsStudio configHost={chat ? null : configHost} />
+          <div className={styles.searchContent} hidden={mode !== 'search'}>
+            <SearchStudio />
+          </div>
+          <div className={styles.searchContent} hidden={!app}>
+            <AppsStudio configHost={app ? configHost : null} />
           </div>
         </main>
-        <aside className={styles.configuration} hidden={!configOpen} aria-label="功能配置">
+        <aside className={styles.configuration} hidden={!app || !configOpen} aria-label="功能配置">
           <div className={styles.configHeading}>
             功能配置
             <button type="button" onClick={() => useWorkspace.setState({ configOpen: false })}>
               关闭
             </button>
           </div>
-          {chat ? (
-            <div className={styles.chatConfig}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.search}
-                  onChange={(e) => setSearch(e.target.checked)}
-                />
-                联网搜索
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.thinking}
-                  onChange={(e) => setThinking(e.target.checked)}
-                />
-                深度思考
-              </label>
-              <p>
-                消息中的链接会自动读取，并结合当前对话上下文作答。联网和文件功能使用 DeepSeek
-                Flash。
-              </p>
-              <p>模型、安全审计、用户元信息和自动朗读可在左下角「设置」中配置。</p>
-            </div>
-          ) : null}
           <div ref={setConfigHost} />
         </aside>
         {chat ? <SearchPanel /> : null}
