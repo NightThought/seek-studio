@@ -136,7 +136,7 @@ const SearchResult = ({
   const t = useTranslate()
   const view = useReplyView(reply, busy)
   const refused = reply.stopReason === 'refusal'
-  const answer = refused ? null : view.answer
+  const answer = view.answer
   const sources = refused ? [] : view.sources.filter((source) => sourceHref(source.url))
   const notice = busy ? null : describeReply(reply)
   const markdown = exportSearchMarkdown(query, reply, {
@@ -148,13 +148,15 @@ const SearchResult = ({
       (step.type === 'search' && step.status === 'failed') ||
       (step.type === 'open' && step.pages.some((page) => page.status === 'failed'))
   )
-  const status = busy
-    ? 'searchRunning'
-    : reply.status === 'error'
-      ? 'searchFailed'
-      : reply.status === 'stopped'
-        ? 'searchStopped'
-        : 'searchFinished'
+  const status = refused
+    ? 'replyRefusedStatus'
+    : busy
+      ? 'searchRunning'
+      : reply.status === 'error'
+        ? 'searchFailed'
+        : reply.status === 'stopped'
+          ? 'searchStopped'
+          : 'searchFinished'
 
   const download = () => {
     const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))

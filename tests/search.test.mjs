@@ -107,7 +107,7 @@ test('abort retains partial content without treating cancellation as a network f
   assert.match(exportSearchMarkdown('Question', reply, labels), /Incomplete result/)
 })
 
-test('refusal removes already streamed text and cannot export it', async () => {
+test('refusal retains streamed text for labeled display but excludes continuation and context', async () => {
   globalThis.fetch = async () =>
     respond([
       ...successEvents.slice(0, 3),
@@ -115,10 +115,12 @@ test('refusal removes already streamed text and cannot export it', async () => {
       { type: 'message_stop' },
     ])
   const reply = await search()
-  assert.equal(
-    reply.blocks.some((b) => b.type === 'text'),
-    false
-  )
+  const { getReplyText, canContinueReply, getContextRounds } =
+    await import('../.cache/tests/services/chat/reply.js')
+  assert.match(getReplyText(reply), /Evidence-based answer/)
+  assert.equal(reply.stopReason, 'refusal')
+  assert.equal(canContinueReply(reply), false)
+  assert.deepEqual(getContextRounds([{ role: 'user', content: 'Question', files: [] }, reply]), [])
   assert.equal(exportSearchMarkdown('Question', reply, labels), '')
 })
 

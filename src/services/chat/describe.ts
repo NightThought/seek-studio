@@ -17,6 +17,12 @@ const getTemplateText = (reply: AssistantMessage) =>
 
 /** 回复出错或未正常结束时展示的提示 */
 export const describeReply = (reply: AssistantMessage): Notice | null => {
+  if (reply.stopReason === 'refusal') {
+    const hasText = reply.blocks.some(
+      (block) => block.type === 'text' && !block.isTemplate && block.text.trim()
+    )
+    return { text: translate(hasText ? 'replyRefusedPartial' : 'replyRefusedEmpty') }
+  }
   if (reply.status === 'error' && reply.error) {
     const { kind, status, localMessage } = reply.error
     // 导入的历史可能来自不同版本；不识别的文案沿用保存时的原文。
@@ -48,10 +54,6 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
   // 归档不带结构化错误，错误文案保存在模板中，仍按错误提示展示。
   if (reply.status === 'error' && template) {
     return { text: template }
-  }
-  if (reply.stopReason === 'refusal') {
-    // 导入的拒绝回复优先展示归档中的模板，普通正文仍不可展示。
-    return { text: template || translate('replyRefused'), presentation: 'response' }
   }
   if (template) {
     return { text: template, presentation: 'response' }
