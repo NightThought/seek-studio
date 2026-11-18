@@ -622,9 +622,18 @@ export class StudioEngine {
           step = { index: i, type: node.type, status: 'running', startedAt: this.now() }
         ctx.run.steps.push(step)
         progress(`执行节点 ${i + 1}/${input.nodes.length}：${node.type}`)
-        const value = (node.prompt || '{{previous}}').replace(/\{\{(input|previous)\}\}/g, (_, v) =>
-          v === 'input' ? input.text : previous
-        )
+        const rawPrompt = (node.prompt ?? '').trim()
+        const value = !rawPrompt
+          ? previous
+          : /\{\{(input|previous)\}\}/.test(rawPrompt)
+            ? rawPrompt.replace(/\{\{(input|previous)\}\}/g, (_, v) =>
+                v === 'input' ? input.text : previous
+              )
+            : ['chat', 'files'].includes(node.type) && previous
+              ? `${rawPrompt}\n\n${previous}`
+              : node.type === 'search' && previous
+                ? `${previous} ${rawPrompt}`
+                : rawPrompt
         try {
           let result
           if (node.type === 'search') {

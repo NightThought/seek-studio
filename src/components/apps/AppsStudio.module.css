@@ -527,40 +527,262 @@
 .steps li {
   font-size: 13px;
 }
+.flowTop {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.templateBar {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.templateLabel {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.templateBtn {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.templateBtn:hover {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+}
+.templateBtn strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.templateBtn small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
 .node {
   position: relative;
   margin: 18px 0 32px;
   border: 1px solid var(--dsw-alias-border-l2);
-  padding: 14px;
-  border-radius: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 70%, var(--dsw-alias-bg-layer-2));
 }
 .nodeHeader {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
 }
-.nodeHeader > span {
-  color: var(--dsw-static-blue-500);
+.nodeStepBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-button-ghost-active-fill);
+  color: var(--dsw-alias-brand-text);
   font-size: 12px;
+  font-weight: 600;
 }
-.nodeHeader select,
-.nodeSelect {
-  flex: 1;
-  min-width: 0;
+.nodeTitle {
+  font-size: 14px;
+  font-weight: 650;
 }
-.nodeHeader button {
+.nodeFlowBadge {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+.nodeMoveGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.nodeMoveGroup button {
   min-width: 30px;
-  padding: 6px;
+  height: 30px;
+  padding: 0 6px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: transparent;
+  background: var(--dsw-alias-bg-base);
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
-.nodeHeader button:hover:not(:disabled) {
+.nodeMoveGroup button:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+.nodeTypeGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.nodeTypePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.nodeTypePill:hover {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-button-ghost-active-border);
+}
+.nodeTypePill[data-active='true'] {
+  color: var(--dsw-alias-brand-text);
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+  font-weight: 600;
+}
+.nodeTypePillIcon {
+  display: inline-flex;
+  align-items: center;
+}
+.nodeTypePillIcon svg {
+  width: 14px;
+  height: 14px;
+}
+.nodeDesc {
+  margin: 0 0 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.nodeParamBox {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.nodeParamToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nodeParamLabel {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nodeTokenBar,
+.nodePresetBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+.nodePresetBar > span {
+  color: var(--dsw-alias-label-secondary);
+}
+.tokenChip,
+.presetChip {
+  padding: 3px 9px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tokenChip:hover,
+.presetChip:hover {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+}
+.tokenChip[data-used='true'] {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  color: var(--dsw-alias-brand-text);
+}
+.nodeFileCard {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.nodeFileCard[data-ready='true'] {
+  border-style: solid;
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-button-ghost-active-fill) 55%,
+    var(--dsw-alias-bg-base)
+  );
+}
+.nodeFileCard strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nodeFileCard span,
+.nodeFileNotice {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.nodeFileNotice[data-ready='true'] {
+  color: var(--dsw-alias-brand-text);
+}
+.addNodePanel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.quickAddGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+.quickAddChip {
+  padding: 5px 10px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.quickAddChip:hover:not(:disabled) {
+  border-style: solid;
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
 }
 .arrow {
   position: absolute;

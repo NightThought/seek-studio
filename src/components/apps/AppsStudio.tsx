@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useWorkspace, setAppSnapshot } from '../../services/workspace.js'
 import { locationName } from '../../services/chat/latestReminder.js'
 import { useSettings } from '../../services/settings.js'
@@ -13,8 +13,15 @@ import { ocrMarkdown } from './ocr.js'
 import { OcrResult } from './OcrResult.js'
 import { AppFilePicker } from './AppFilePicker.js'
 import { Button } from '../base/Button.js'
-import { Select } from '../base/Select.js'
-import { IconChevronDownOutline14 } from '../base/icons.js'
+import {
+  IconBrowseOutline16,
+  IconChevronDownOutline14,
+  IconGlobeLanguageOutline14,
+  IconMicOutline16,
+  IconPlayMediaOutline16,
+  IconSearchOutline16,
+} from '../base/icons.js'
+import { ChatOutline, ScanOutline } from '../sider/SiderIcons.js'
 import { Markdown } from '../markdown/Markdown.js'
 import { copyText } from '../../utils/clipboard.js'
 import { showToast } from '../base/toastState.js'
@@ -99,8 +106,8 @@ const seed: Record<AppKind, AppInput> = {
     text: '',
     fileIds: [],
     nodes: [
-      { type: 'search', prompt: '{{input}}' },
-      { type: 'chat', prompt: '总结以下搜索资料，注明来源：\n{{previous}}' },
+      { type: 'search', prompt: '' },
+      { type: 'chat', prompt: '总结以上搜索资料，注明来源与关键依据。' },
     ],
   },
 }
@@ -595,7 +602,11 @@ export const AppsStudio = () => {
                     />
                   </label>
                   {filePicker()}
-                  <FlowEditor nodes={input.nodes ?? []} onChange={(nodes) => setInput({ nodes })} />
+                  <FlowEditor
+                    nodes={input.nodes ?? []}
+                    fileCount={(input.fileIds ?? []).length}
+                    onChange={(nodes) => setInput({ nodes })}
+                  />
                 </>
               ) : null}
             </div>
@@ -849,16 +860,162 @@ export const AppsStudio = () => {
   )
 }
 
-const nodeOptions = (Object.entries(nodeLabels) as [NodeKind, string][]).map(([value, label]) => ({
-  value,
-  label,
-}))
+type NodeMeta = {
+  label: string
+  icon: ReactNode
+  badge: string
+  description: string
+  usesPrompt: boolean
+  promptLabel?: string
+  placeholder?: string
+  defaultPrompt: (index: number) => string
+  presets?: { label: string; prompt: string }[]
+}
+
+const nodeMeta: Record<NodeKind, NodeMeta> = {
+  search: {
+    label: '网页搜索',
+    icon: <IconSearchOutline16 />,
+    badge: '文本 → 搜索资料 JSON',
+    description: '联网检索实时网页资讯，返回标题、摘要与链接列表供下一步分析。',
+    usesPrompt: false,
+    defaultPrompt: () => '',
+  },
+  fetch: {
+    label: '网页抓取',
+    icon: <IconGlobeLanguageOutline14 />,
+    badge: 'URL → 网页正文',
+    description: '自动读取上游传入的公开网页地址（https://），抓取网页正文传给下一步。',
+    usesPrompt: false,
+    defaultPrompt: () => '',
+  },
+  chat: {
+    label: '模型生成',
+    icon: <ChatOutline />,
+    badge: '上游文本 → AI 生成结果',
+    description: '上游结果会自动传入模型，你只需填写希望模型如何处理的指令。',
+    usesPrompt: true,
+    promptLabel: '处理要求（上游内容已自动带入，无需手动引用）',
+    placeholder: '例如：总结核心要点，注明来源；留空则直接由模型处理上游内容',
+    defaultPrompt: (i) => (i === 0 ? '' : '总结以上内容的核心要点，并注明关键依据。'),
+    presets: [
+      {
+        label: '总结要点与来源',
+        prompt: '总结以上资料的核心要点，注明来源与关键依据。',
+      },
+      {
+        label: '提取结构化表格',
+        prompt: '从以上内容中提取关键数据与结论，整理为 Markdown 表格。',
+      },
+      {
+        label: '改写为播报口播稿',
+        prompt: '将以上内容改写为自然流畅、适合语音朗读的中文简报（控制在 800 字以内）。',
+      },
+    ],
+  },
+  ocr: {
+    label: 'OCR 识别',
+    icon: <ScanOutline />,
+    badge: '上方输入文件 → Markdown 文本',
+    description: '自动批量识别上方上传的 PDF 或图片，提取版面文字与表格为 Markdown。',
+    usesPrompt: false,
+    defaultPrompt: () => '',
+  },
+  files: {
+    label: '文件分析',
+    icon: <IconBrowseOutline16 />,
+    badge: '上方输入文件 + 指令 → 分析报告',
+    description: '自动关联上方上传的多份文档（及上一步输出），按你的要求进行深度分析或对比。',
+    usesPrompt: true,
+    promptLabel: '文档分析要求（上传的文档与上游内容已自动带入）',
+    placeholder: '例如：总结上传文档的主要结论，列出原文依据',
+    defaultPrompt: (i) =>
+      i === 0 ? '总结上传文档的主要内容，列出原文依据。' : '结合上传文档与上一步结果进行对比分析。',
+    presets: [
+      { label: '总结文档并附依据', prompt: '总结上传文档的核心内容，并引用原文依据与文件名。' },
+      { label: '对比多份文档差异', prompt: '比较上传文档的共同点、差异和矛盾，注明文件名。' },
+    ],
+  },
+  asr: {
+    label: '语音转写',
+    icon: <IconMicOutline16 />,
+    badge: '上方录音文件 → 带时间戳转写文本',
+    description: '自动将上方上传的 1 个音频/视频文件切分并转写为带时间段的文字记录。',
+    usesPrompt: false,
+    defaultPrompt: () => '',
+  },
+  tts: {
+    label: '语音合成',
+    icon: <IconPlayMediaOutline16 />,
+    badge: '上游文本 → 音频 WAV（≤4000 字）',
+    description: '自动将上一步生成的文本（或初始输入）合成为可收听、可下载的语音音频。',
+    usesPrompt: false,
+    defaultPrompt: () => '',
+  },
+}
+
+const workflowTemplates: {
+  name: string
+  detail: string
+  nodes: FlowNode[]
+}[] = [
+  {
+    name: '联网调研总结',
+    detail: '网页搜索 → 模型总结',
+    nodes: [
+      { type: 'search', prompt: '' },
+      { type: 'chat', prompt: '总结以上搜索资料，注明来源与关键依据。' },
+    ],
+  },
+  {
+    name: '网页精读播报',
+    detail: '网页抓取 → 提炼简报 → 语音合成',
+    nodes: [
+      { type: 'fetch', prompt: '' },
+      {
+        type: 'chat',
+        prompt: '提炼以上网页的核心内容，改写为 600 字以内适合朗读的中文简报。',
+      },
+      { type: 'tts', prompt: '' },
+    ],
+  },
+  {
+    name: '扫描件 OCR 提炼',
+    detail: 'OCR 识别 → 结构化整理',
+    nodes: [
+      { type: 'ocr', prompt: '' },
+      {
+        type: 'chat',
+        prompt: '整理以上 OCR 识别文本，修正版式并提取核心信息与表格。',
+      },
+    ],
+  },
+  {
+    name: '录音转写纪要',
+    detail: '语音转写 → 会议纪要与待办',
+    nodes: [
+      { type: 'asr', prompt: '' },
+      {
+        type: 'chat',
+        prompt: '根据以上录音转写内容整理会议纪要、关键决策与待办事项表格。',
+      },
+    ],
+  },
+]
+
+const cleanLegacyPrompt = (prompt: string) =>
+  prompt
+    .replace(/\n*\{\{(input|previous)\}\}\n*/g, '')
+    .replace(/以下/g, '以上')
+    .trim()
 
 const FlowEditor = ({
   nodes,
+  fileCount = 0,
   onChange,
 }: {
   nodes: FlowNode[]
+  fileCount?: number
   onChange: (nodes: FlowNode[]) => void
 }) => {
   const move = (i: number, d: number) => {
@@ -866,64 +1023,206 @@ const FlowEditor = ({
     ;[copy[i], copy[i + d]] = [copy[i + d], copy[i]]
     onChange(copy)
   }
+  const changeNodeType = (index: number, nextType: NodeKind) => {
+    onChange(
+      nodes.map((node, j) =>
+        j === index ? { type: nextType, prompt: nodeMeta[nextType].defaultPrompt(index) } : node
+      )
+    )
+  }
+  const appendNode = (type: NodeKind) => {
+    if (nodes.length >= 12) {
+      return
+    }
+    const nextIndex = nodes.length
+    onChange([...nodes, { type, prompt: nodeMeta[type].defaultPrompt(nextIndex) }])
+  }
+  const describeSource = (n: FlowNode, i: number) => {
+    const prevNode = i > 0 ? nodes[i - 1] : null
+    const prevLabel = prevNode
+      ? `步骤 ${String(i).padStart(2, '0')}（${nodeMeta[prevNode.type].label}）的输出结果`
+      : '上方「工作流输入」填写的内容'
+    if (n.type === 'ocr') {
+      return fileCount > 0
+        ? `✓ 数据来源：自动读取上方已上传的 ${fileCount} 个文档/图片`
+        : '等待上传文件：请先在上方「输入文件」中选择 PDF 或图片'
+    }
+    if (n.type === 'asr') {
+      return fileCount === 1
+        ? '✓ 数据来源：自动读取上方已上传的 1 个录音文件'
+        : fileCount > 1
+          ? `提示：语音转写仅需 1 个录音文件（当前已上传 ${fileCount} 个）`
+          : '等待上传录音：请先在上方「输入文件」中上传 1 个音频或视频文件'
+    }
+    if (n.type === 'files') {
+      return fileCount > 0
+        ? `✓ 数据来源：自动读取上方已上传的 ${fileCount} 个文件${i > 0 ? ` + ${prevLabel}` : ''}`
+        : '等待上传文件：请先在上方「输入文件」中上传需要分析的文档'
+    }
+    return `✓ 数据来源：自动带入${prevLabel}`
+  }
   return (
     <div className={styles.flow}>
-      <h2>顺序节点</h2>
-      <p className={styles.hint}>
-        {'{{input}} 为初始输入，{{previous}} 为上一步文字结果。文件节点使用上传的输入文件。'}
-      </p>
-      {nodes.map((n, i) => (
-        <div key={i} className={styles.node}>
-          <div className={styles.nodeHeader}>
-            <span>{String(i + 1).padStart(2, '0')}</span>
-            <Select
-              ariaLabel={`节点 ${i + 1} 类型`}
-              className={styles.nodeSelect}
-              value={n.type}
-              options={nodeOptions}
-              onChange={(value) =>
-                onChange(nodes.map((x, j) => (j === i ? { ...x, type: value } : x)))
-              }
-            />
-            <button type="button" disabled={i === 0} aria-label="上移" onClick={() => move(i, -1)}>
-              ↑
-            </button>
-            <button
-              type="button"
-              disabled={i === nodes.length - 1}
-              aria-label="下移"
-              onClick={() => move(i, 1)}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              aria-label="删除节点"
-              onClick={() => onChange(nodes.filter((_, j) => j !== i))}
-            >
-              ×
-            </button>
-          </div>
-          <textarea
-            aria-label={`节点 ${i + 1} 参数`}
-            rows={3}
-            value={n.prompt}
-            placeholder="{{previous}}"
-            onChange={(e) =>
-              onChange(nodes.map((x, j) => (j === i ? { ...x, prompt: e.target.value } : x)))
-            }
-          />
-          {i < nodes.length - 1 ? <div className={styles.arrow}>↓</div> : null}
+      <div className={styles.flowTop}>
+        <div>
+          <h2>顺序节点（共 {nodes.length} 步）</h2>
+          <p className={styles.hint}>上一步的输出会自动传给下一步，无需手动填写任何变量占位符。</p>
         </div>
-      ))}
-      <Button
-        size="s"
-        variant="outlined"
-        disabled={nodes.length >= 12}
-        onClick={() => onChange([...nodes, { type: 'chat', prompt: '{{previous}}' }])}
-      >
-        添加节点
-      </Button>
+        <div className={styles.templateBar} aria-label="常用工作流模板">
+          <span className={styles.templateLabel}>常用模板：</span>
+          {workflowTemplates.map((tpl) => (
+            <button
+              key={tpl.name}
+              type="button"
+              className={styles.templateBtn}
+              title={tpl.detail}
+              onClick={() => onChange(tpl.nodes.map((n) => ({ ...n })))}
+            >
+              <strong>{tpl.name}</strong>
+              <small>{tpl.detail}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+      {nodes.map((n, i) => {
+        const meta = nodeMeta[n.type]
+        const needsFile = ['ocr', 'asr', 'files'].includes(n.type)
+        const sourceReady = !needsFile || (n.type === 'asr' ? fileCount === 1 : fileCount > 0)
+        const displayPrompt = cleanLegacyPrompt(n.prompt)
+        return (
+          <div key={i} className={styles.node}>
+            <div className={styles.nodeHeader}>
+              <span className={styles.nodeStepBadge}>步骤 {String(i + 1).padStart(2, '0')}</span>
+              <strong className={styles.nodeTitle}>{meta.label}</strong>
+              <span className={styles.nodeFlowBadge}>{meta.badge}</span>
+              <div className={styles.nodeMoveGroup}>
+                <button
+                  type="button"
+                  disabled={i === 0}
+                  aria-label="上移"
+                  title="上移此步骤"
+                  onClick={() => move(i, -1)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  disabled={i === nodes.length - 1}
+                  aria-label="下移"
+                  title="下移此步骤"
+                  onClick={() => move(i, 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  aria-label="删除节点"
+                  title="删除此步骤"
+                  disabled={nodes.length <= 1}
+                  onClick={() => onChange(nodes.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div
+              className={styles.nodeTypeGrid}
+              role="radiogroup"
+              aria-label={`节点 ${i + 1} 类型`}
+            >
+              {(Object.keys(nodeMeta) as NodeKind[]).map((kindKey) => {
+                const item = nodeMeta[kindKey]
+                const active = n.type === kindKey
+                return (
+                  <button
+                    key={kindKey}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={styles.nodeTypePill}
+                    data-active={active ? 'true' : undefined}
+                    onClick={() => changeNodeType(i, kindKey)}
+                  >
+                    <span className={styles.nodeTypePillIcon} aria-hidden="true">
+                      {item.icon}
+                    </span>
+                    <span>{item.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className={styles.nodeFileCard} data-ready={sourceReady ? 'true' : undefined}>
+              <strong>{describeSource(n, i)}</strong>
+              <span>{meta.description}</span>
+            </div>
+            {meta.usesPrompt ? (
+              <div className={styles.nodeParamBox}>
+                <div className={styles.nodeParamToolbar}>
+                  <span className={styles.nodeParamLabel}>{meta.promptLabel}</span>
+                  {meta.presets?.length ? (
+                    <div className={styles.nodePresetBar}>
+                      <span>快捷指令：</span>
+                      {meta.presets.map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          className={styles.presetChip}
+                          onClick={() =>
+                            onChange(
+                              nodes.map((x, j) => (j === i ? { ...x, prompt: preset.prompt } : x))
+                            )
+                          }
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <textarea
+                  aria-label={`节点 ${i + 1} 参数`}
+                  rows={2}
+                  value={displayPrompt}
+                  placeholder={meta.placeholder}
+                  onChange={(e) =>
+                    onChange(nodes.map((x, j) => (j === i ? { ...x, prompt: e.target.value } : x)))
+                  }
+                />
+              </div>
+            ) : null}
+            {i < nodes.length - 1 ? <div className={styles.arrow}>↓</div> : null}
+          </div>
+        )
+      })}
+      <div className={styles.addNodePanel}>
+        <Button
+          size="s"
+          variant="outlined"
+          disabled={nodes.length >= 12}
+          onClick={() =>
+            onChange([
+              ...nodes,
+              { type: 'chat', prompt: nodeMeta.chat.defaultPrompt(nodes.length) },
+            ])
+          }
+        >
+          添加节点
+        </Button>
+        <div className={styles.quickAddGroup}>
+          <span>或直接添加：</span>
+          {(Object.keys(nodeMeta) as NodeKind[]).map((kindKey) => (
+            <button
+              key={kindKey}
+              type="button"
+              className={styles.quickAddChip}
+              disabled={nodes.length >= 12}
+              onClick={() => appendNode(kindKey)}
+            >
+              + {nodeMeta[kindKey].label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

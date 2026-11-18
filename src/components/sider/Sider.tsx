@@ -14,6 +14,7 @@ import {
   IconChevronDownOutline14,
   IconGlobeLanguageOutline14,
   IconMicOutline16,
+  IconPanelLeftOutline16,
   IconPlayMediaOutline16,
   IconSearchOutline16,
   IconSettingsOutline16,
@@ -104,6 +105,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const groups = useMemo(() => groupSessions(sessions, now, t), [sessions, now, t])
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
   const [deletePending, setDeletePending] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const functionOptions = useMemo(
     () =>
       functions.map((entry) => {
@@ -148,6 +150,73 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
     }
   }, [])
 
+  if (!mobile && collapsed) {
+    return (
+      <div className={clsx(styles.sider, styles.siderCollapsed)}>
+        <div className={styles.railTop}>
+          <button
+            type="button"
+            className={styles.toggleBtn}
+            aria-label={t('expandSiderbarButton')}
+            title={t('expandSiderbarButton')}
+            onClick={() => setCollapsed(false)}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        </div>
+        <button
+          type="button"
+          className={styles.railPrimaryBtn}
+          aria-label={t('newChat')}
+          title={t('newChat')}
+          onClick={() => {
+            selectFunction('chat')
+            newChat()
+          }}
+        >
+          <NewChatIcon />
+        </button>
+        <div className={styles.railDivider} />
+        <nav className={styles.railNav} aria-label={t('sidebarSelectFunction')}>
+          {functionOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={styles.railItem}
+              aria-label={option.label}
+              title={option.label}
+              data-active={workspace.function === option.value ? 'true' : undefined}
+              onClick={() => selectFunction(option.value)}
+            >
+              {option.icon}
+            </button>
+          ))}
+        </nav>
+        <div className={styles.railDivider} />
+        <button
+          type="button"
+          className={styles.railItem}
+          aria-label={t('sidebarRunHistory')}
+          title={`${t('sidebarChatHistory')} / ${t('sidebarRunHistory')}`}
+          onClick={() => setCollapsed(false)}
+        >
+          <HistoryOutline />
+        </button>
+        <div className={styles.railBottom}>
+          <button
+            type="button"
+            className={styles.railItem}
+            aria-label={t('settings')}
+            title={t('settings')}
+            onClick={() => openSettings('model')}
+          >
+            <IconSettingsOutline16 />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={clsx(styles.sider, mobile && styles.mobile)}>
       <div className={styles.top}>
@@ -156,7 +225,17 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
           <button type="button" className={styles.closeButton} onClick={closeMobileSider}>
             {t('close')}
           </button>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            className={styles.toggleBtn}
+            aria-label={t('collapseSiderbarButton')}
+            title={t('collapseSiderbarButton')}
+            onClick={() => setCollapsed(true)}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        )}
       </div>
       <div className={styles.functionPicker}>
         <span>{t('sidebarFunctionLabel')}</span>
