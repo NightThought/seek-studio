@@ -76,12 +76,17 @@ try {
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /Font << /F1 5 0 R >> /XObject << /Chart 8 0 R >> >> /Contents 7 0 R >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    ...['Page One', 'Page Two'].map((label) => {
-      const stream = `BT /F1 30 Tf 40 600 Td (${label}) Tj ET`
+    ...['Page One', 'Page Two'].map((label, i) => {
+      const figureAndTable =
+        i === 1
+          ? '\nq 200 0 0 140 100 350 cm /Chart Do Q\nBT /F1 12 Tf 80 300 Td (Item) Tj 130 0 Td (Amount) Tj ET\nBT /F1 12 Tf 80 280 Td (Widget) Tj 130 0 Td (2) Tj ET'
+          : ''
+      const stream = `BT /F1 30 Tf 40 600 Td (${label}) Tj ET${figureAndTable}`
       return `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
     }),
+    '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 7 >>\nstream\n1A59CC>\nendstream',
   ]
   let pdf = '%PDF-1.4\n'
   const offsets = [0]
@@ -97,6 +102,20 @@ try {
       .map((n) => `${String(n).padStart(10, '0')} 00000 n \n`)
       .join('') +
     `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  const png = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 40
+      canvas.height = 30
+      const context = canvas.getContext('2d')
+      context.fillStyle = '#e83649'
+      context.fillRect(0, 0, 40, 30)
+      context.fillStyle = '#27ab61'
+      context.fillRect(8, 6, 24, 18)
+      return canvas.toDataURL().split(',')[1]
+    }),
+    'base64'
+  )
   await page.route('**/studio-api/**', async (route) => {
     const req = route.request(),
       url = new URL(req.url()),
@@ -109,10 +128,17 @@ try {
       if (method === 'POST') audits.push(req.postDataJSON())
       return send({ entries: audits })
     }
-    if (parts[0] === 'assets')
-      return route.fulfill({ contentType: 'application/pdf', body: Buffer.from(pdf) })
+    if (parts[0] === 'assets') {
+      return state.files.find((file) => file.id === parts[1])?.mime === 'image/png'
+        ? route.fulfill({ contentType: 'image/png', body: png })
+        : route.fulfill({ contentType: 'application/pdf', body: Buffer.from(pdf) })
+    }
     if (parts[0] === 'uploads') {
-      const file = { id: 'file-' + ++n, name: 'fixture.pdf', mime: 'application/pdf', size: 100 }
+      const data = await new Response(req.postDataBuffer(), {
+        headers: { 'content-type': req.headers()['content-type'] },
+      }).formData()
+      const item = data.get('file')
+      const file = { id: 'file-' + ++n, name: item.name, mime: item.type, size: item.size }
       state.files.push(file)
       return send(file, 201)
     }
@@ -169,11 +195,22 @@ try {
               },
               {
                 index: 1,
-                text: '<｜ref｜>table<｜/ref｜><｜box｜>[[100,200,900,600]]<｜/box｜>\n| 项目 | 数量 |\n|---|---|\n| 测试 | 2 |',
+                text: '<｜ref｜>table<｜/ref｜><｜box｜>[[200,300,600,500]]<｜/box｜>\n<table><tr><td>Item</td><td>Amount</td></tr><tr><td>Widget</td><td>2</td></tr></table>\n\n<｜ref｜>table_caption<｜/ref｜><｜box｜>[[200,520,600,550]]<｜/box｜>\n图 1',
                 finish_reason: 'stop',
               },
             ],
           },
+          ...input.fileIds.slice(1).map((fileId) => ({
+            fileId,
+            name: 'fixture.png',
+            pages: [
+              {
+                index: 0,
+                text: '<｜ref｜>image<｜/ref｜><｜box｜>[[200,200,800,800]]<｜/box｜>',
+                finish_reason: 'stop',
+              },
+            ],
+          })),
         ]
       if (kind === 'podcast') {
         run.result.script = input.script || 'A: 大家好。\nB: 欢迎收听。'
@@ -214,20 +251,114 @@ try {
     await page
       .locator('input[aria-label="上传文件"]')
       .setInputFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) })
-    await page.getByText('fixture.pdf', { exact: false }).first().waitFor()
+    await page.getByRole('button', { name: '移除文件 fixture.pdf', exact: true }).waitFor()
   }
   await choose('ocr')
-  await upload()
-  await page.getByRole('button', { name: '运行OCR 工作台', exact: true }).click()
+  await page.setViewportSize({ width: 966, height: 827 })
+  const taskInput = page.getByRole('region', { name: '任务输入' })
+  const startOcr = taskInput.getByRole('button', { name: '开始识别', exact: true })
+  assert.equal(await startOcr.isEnabled(), false)
+  const layoutMode = taskInput.getByRole('radio', { name: /图文混排/ })
+  assert.equal(await layoutMode.isChecked(), true)
+  await layoutMode.press('ArrowRight')
+  assert.equal(await taskInput.getByRole('radio', { name: /文字识别/ }).isChecked(), true)
+  await taskInput.getByText('图文混排', { exact: true }).click()
+  const fileInput = taskInput.locator('input[aria-label="上传文件"]')
+  const chooser = page.waitForEvent('filechooser')
+  await fileInput.click()
+  await (
+    await chooser
+  ).setFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) })
+  const removeFile = taskInput.getByRole('button', { name: '移除文件 fixture.pdf', exact: true })
+  await removeFile.click()
+  assert.equal(await startOcr.isEnabled(), false)
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(['fixture'], 'fixture.pdf', { type: 'application/pdf' }))
+    return data
+  })
+  const chatDropMask = page.getByText('文件拖动到此处即可上传', { exact: true })
+  await fileInput.dispatchEvent('dragenter', { dataTransfer: transfer })
+  await fileInput.dispatchEvent('dragover', { dataTransfer: transfer })
+  assert.equal(await chatDropMask.isVisible(), false)
+  await fileInput.dispatchEvent('drop', { dataTransfer: transfer })
+  await removeFile.waitFor()
+  await fileInput.setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: png })
+  await taskInput.getByRole('button', { name: '移除文件 fixture.png', exact: true }).waitFor()
+  await startOcr.click()
+  const viewResult = taskInput.getByRole('button', { name: '查看结果', exact: true })
+  await viewResult.waitFor()
+  assert.equal(state.runs[0].input.purpose, 'rich_layout_recognition')
+  assert.equal(state.runs[0].input.fileIds.length, 2)
+  await startOcr.and(page.locator('button:enabled')).waitFor()
+  await page.screenshot({ path: '.cache/ocr-task-input.png' })
+  await viewResult.click()
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+    '任务结果'
+  )
   await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
   await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 1 页"]').waitFor()
-  await page.getByRole('button', { name: '定位第 2 页区域 1', exact: true }).click()
+  const readFigure = async (figure) => {
+    await figure.scrollIntoViewIfNeeded()
+    const image = figure.locator('img')
+    await image.waitFor()
+    return image.evaluate(async (element) => {
+      await element.decode()
+      const canvas = document.createElement('canvas')
+      const width = (canvas.width = element.naturalWidth)
+      const height = (canvas.height = element.naturalHeight)
+      const context = canvas.getContext('2d')
+      context.drawImage(element, 0, 0)
+      return { width, height, pixel: [...context.getImageData(4, 4, 1, 1).data] }
+    })
+  }
+  await page.getByRole('cell', { name: 'Widget', exact: true }).scrollIntoViewIfNeeded()
+  const pdfFigure = page.getByRole('button', { name: /定位第 2 页插图/ })
+  const pdfCrop = await readFigure(pdfFigure)
+  assert.ok(Math.abs(pdfCrop.width - 300) <= 2 && Math.abs(pdfCrop.height - 210) <= 2)
+  assert.ok(pdfCrop.pixel[2] > 190 && pdfCrop.pixel[0] < 40)
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 1 页"]').waitFor()
+  await pdfFigure.click()
   await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 2 页"]').waitFor()
   assert.equal(await page.getByTestId('ocr-highlight').count(), 1)
-  assert.equal(await page.getByRole('cell', { name: '测试', exact: true }).count(), 1)
+  assert.equal(await page.getByRole('cell', { name: 'Widget', exact: true }).count(), 1)
+  assert.equal(await page.getByRole('columnheader', { name: 'Amount', exact: true }).count(), 1)
   assert.ok(!(await page.getByLabel('Markdown 识别结果').innerText()).includes('<｜'))
+  assert.ok(!(await page.getByLabel('Markdown 识别结果').innerText()).includes('<table'))
+  await page.getByRole('cell', { name: 'Widget', exact: true }).click()
+  const tableHighlightTop = await page
+    .getByTestId('ocr-highlight')
+    .evaluate((element) => parseFloat(element.style.top))
+  assert.ok(
+    tableHighlightTop > 50,
+    `Table highlights below the figure (top: ${tableHighlightTop}%)`
+  )
   await page.screenshot({ path: '.cache/unified-ocr.png', fullPage: true })
+  await page.getByLabel('识别文档', { exact: true }).selectOption({ label: 'fixture.png' })
+  assert.deepEqual(
+    await readFigure(page.getByRole('button', { name: '定位第 1 页插图 1', exact: true })),
+    {
+      width: 24,
+      height: 18,
+      pixel: [39, 171, 97, 255],
+    }
+  )
+  await page.setViewportSize({ width: 1440, height: 1100 })
   const ocrConversation = state.runs[0].conversationId
+  await taskInput.getByRole('radio', { name: /文字识别/ }).check()
+  await startOcr.click()
+  await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
+  assert.equal(state.runs[0].input.purpose, 'text_recognition')
+  const originalPage = page.getByLabel('原文页码', { exact: true })
+  await originalPage.selectOption('1')
+  await originalPage.selectOption('0')
+  await originalPage.selectOption('1')
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 2 页"]').waitFor()
+  assert.equal(await page.getByRole('button', { name: /定位第 2 页插图/ }).count(), 0)
+  await page.getByLabel('识别文档', { exact: true }).selectOption({ label: 'fixture.png' })
+  await page.locator('canvas[data-ready="true"][aria-label="fixture.png"]').waitFor()
+  assert.equal(await page.getByRole('button', { name: /定位第 1 页插图/ }).count(), 0)
   await choose('documents')
   await upload()
   await page.getByRole('textbox', { name: /分析问题/ }).fill('比较这些资料的结论')
@@ -275,7 +406,10 @@ try {
   await page.getByText(/Authorization: Bearer mock-publish-token/).waitFor()
   await page.getByRole('button', { name: '运行工作流', exact: true }).click()
   await result()
-  await page.getByRole('button', { name: /运行OCR 工作台.*OCR 识别/ }).click()
+  await page
+    .getByRole('button', { name: /运行OCR 工作台.*OCR 识别/ })
+    .last()
+    .click()
   await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
   assert.ok(state.runs.some((r) => r.conversationId === ocrConversation))
   await page.getByRole('button', { name: '设置', exact: true }).click()
@@ -287,6 +421,11 @@ try {
   assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   const composer = page.locator('main textarea:visible')
+  await composer.dispatchEvent('dragenter', { dataTransfer: transfer })
+  await chatDropMask.waitFor()
+  await composer.dispatchEvent('dragleave', { dataTransfer: transfer })
+  await chatDropMask.waitFor({ state: 'hidden' })
+  await transfer.dispose()
   await composer.fill('阅读 https://example.org 并总结')
   await composer.press('Enter')
   await page.getByText('这是保留的文字回答。', { exact: true }).waitFor()
@@ -351,7 +490,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   assert.deepEqual(errors, [])
   console.log(
-    'PASS: seven standalone apps, run history, monitoring goals, inline schedules, PDF page/region mapping, Markdown tables, settings persistence, safety audit, metadata removal, automatic speech, mobile layout'
+    'PASS: seven standalone apps, file selection and drop routing, OCR mode choices, PDF page/region mapping, Markdown tables, run history, inline schedules, settings, and mobile layout'
   )
 } catch (error) {
   const page = browser.contexts()[0]?.pages()[0]

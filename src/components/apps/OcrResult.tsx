@@ -1,123 +1,61 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Markdown } from '../markdown/Markdown.js'
 import { assetUrl, type Asset, type Result } from './api.js'
 import { parseOcr, type OcrRegion } from './ocr.js'
+import { OcrFigure, OcrPagePreview, OcrPageSection, useOcrOriginal } from './OcrRaster.js'
+import type { DisplayRegion } from './ocrLayout.js'
 import styles from './OcrResult.module.css'
-
-const PdfPage = ({ fileId, page }: { fileId: string; page: number }) => {
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
-  const [error, setError] = useState('')
-  const [renderedKey, setRenderedKey] = useState('')
-  const ready = renderedKey === `${fileId}:${page}`
-  useEffect(() => {
-    let alive = true
-    let destroy: undefined | (() => void)
-    setDoc(null)
-    setError('')
-    setRenderedKey('')
-    void import('pdfjs-dist')
-      .then((pdf) => {
-        if (!alive) {
-          return
-        }
-        pdf.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', document.baseURI).href
-        const task = pdf.getDocument({ url: assetUrl(fileId) })
-        destroy = () => {
-          void task.destroy()
-        }
-        return task.promise.then((value) => {
-          if (alive) {
-            setDoc(value)
-          }
-        })
-      })
-      .catch((e) => {
-        if (alive) {
-          setError((e as Error).message)
-        }
-      })
-    return () => {
-      alive = false
-      destroy?.()
-    }
-  }, [fileId])
-  useEffect(() => {
-    let alive = true
-    let cancel: undefined | (() => void)
-    setRenderedKey('')
-    setError('')
-    if (!doc) {
-      return
-    }
-    void doc
-      .getPage(page + 1)
-      .then((value) => {
-        if (!alive || !canvas.current) {
-          return
-        }
-        const viewport = value.getViewport({ scale: 1.5 })
-        const target = canvas.current
-        target.width = viewport.width
-        target.height = viewport.height
-        const task = value.render({ canvas: target, viewport })
-        cancel = () => task.cancel()
-        return task.promise.then(() => {
-          if (alive) {
-            setRenderedKey(`${fileId}:${page}`)
-          }
-        })
-      })
-      .catch((e) => {
-        if (alive) {
-          setError((e as Error).message)
-        }
-      })
-    return () => {
-      alive = false
-      cancel?.()
-    }
-  }, [doc, page, fileId])
-  return (
-    <>
-      {error ? <p role="alert">原文加载失败：{error}。可下载原文件查看。</p> : null}
-      {!ready && !error ? <p role="status">正在加载第 {page + 1} 页…</p> : null}
-      <canvas
-        ref={canvas}
-        aria-label={`PDF 原文第 ${page + 1} 页`}
-        data-ready={ready}
-        style={{ display: ready ? 'block' : 'none' }}
-      />
-    </>
-  )
-}
 
 export const OcrResult = ({
   documents,
   assets,
+  includeFigures,
 }: {
   documents: NonNullable<Result['documents']>
   assets: Asset[]
+  includeFigures: boolean
 }) => {
   const [docIndex, setDocIndex] = useState(0),
     [pageIndex, setPageIndex] = useState(0),
-    [regionIndex, setRegionIndex] = useState<number | null>(null)
+    [regionId, setRegionId] = useState<string | null>(null)
+  const [layouts, setLayouts] = useState<Record<string, DisplayRegion[]>>({})
+  const applyLayout = useCallback((key: string, regions: DisplayRegion[]) => {
+    setLayouts((current) => ({ ...current, [key]: regions }))
+  }, [])
   const source = useRef<HTMLDivElement>(null)
   const doc = documents[docIndex] ?? documents[0]
   const pages = useMemo(
-    () => doc?.pages.map((page) => ({ ...page, regions: parseOcr(page.text) })) ?? [],
-    [doc]
+    () =>
+      doc?.pages.map((page) => ({
+        ...page,
+        key: `${doc.fileId}:${page.index}`,
+        regions: parseOcr(page.text)
+          .filter((region) => includeFigures || region.type === 'text' || region.text)
+          .map((region, i) => ({
+            ...region,
+            type: includeFigures ? region.type : ('text' as const),
+            id: `ocr-${i}`,
+          })),
+      })) ?? [],
+    [doc, includeFigures]
   )
   const page = pages[pageIndex] ?? pages[0]
+  const asset = assets.find((f) => f.id === doc?.fileId)
+  const name = doc?.name ?? ''
+  const format =
+    asset?.mime === 'application/pdf' || /\.pdf$/i.test(name)
+      ? 'pdf'
+      : asset?.mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name)
+        ? 'image'
+        : undefined
+  const original = useOcrOriginal(doc?.fileId, format)
   if (!doc || !page) {
     return <p>没有页面结果</p>
   }
-  const asset = assets.find((f) => f.id === doc.fileId)
-  const selected = regionIndex === null ? undefined : page.regions[regionIndex]
-  const select = (p: number, r: number) => {
+  const selected = (layouts[page.key] ?? page.regions).find((region) => region.id === regionId)
+  const select = (p: number, id: string) => {
     setPageIndex(p)
-    setRegionIndex(r)
+    setRegionId(id)
     source.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }
   const overlay = (region: OcrRegion) =>
@@ -142,7 +80,7 @@ export const OcrResult = ({
           onChange={(e) => {
             setDocIndex(+e.target.value)
             setPageIndex(0)
-            setRegionIndex(null)
+            setRegionId(null)
           }}
         >
           {documents.map((d, i) => (
@@ -158,7 +96,7 @@ export const OcrResult = ({
             value={pageIndex}
             onChange={(e) => {
               setPageIndex(+e.target.value)
-              setRegionIndex(null)
+              setRegionId(null)
             }}
           >
             {pages.map((p, i) => (
@@ -170,16 +108,20 @@ export const OcrResult = ({
         </label>
       </div>
       <p className={styles.hint}>
-        点击或选择右侧文字，左侧自动显示对应原文页；识别结果含区域坐标时会高亮原文位置。
+        点击右侧{includeFigures ? '文字或插图' : '文字'}
+        可跳到对应原文页，有区域坐标时会高亮原文位置。
       </p>
       <div className={styles.columns}>
         <div className={styles.source} ref={source}>
           <strong>原文 · 第 {page.index + 1} 页</strong>
           <div className={styles.preview}>
-            {asset?.mime === 'application/pdf' || doc.name.toLowerCase().endsWith('.pdf') ? (
-              <PdfPage fileId={doc.fileId} page={page.index} />
-            ) : asset?.mime.startsWith('image/') ? (
-              <img src={assetUrl(doc.fileId)} alt={doc.name} />
+            {format ? (
+              <OcrPagePreview
+                key={page.key}
+                original={original}
+                page={page.index}
+                label={format === 'pdf' ? `PDF 原文第 ${page.index + 1} 页` : doc.name}
+              />
             ) : (
               <p>此格式可下载原文件查看。</p>
             )}
@@ -188,40 +130,53 @@ export const OcrResult = ({
           <a href={assetUrl(doc.fileId)} download>
             下载原文件
           </a>
-          {regionIndex !== null && !selected?.box ? (
-            <p className={styles.hint}>当前文字未返回区域坐标，已定位到对应页。</p>
+          {regionId !== null && !selected?.box ? (
+            <p className={styles.hint}>当前内容缺少区域坐标，已定位到对应页。</p>
           ) : null}
         </div>
         <div className={styles.recognized} aria-label="Markdown 识别结果">
           {pages.map((p, pi) => (
-            <section key={p.index}>
+            <OcrPageSection
+              key={p.key}
+              original={includeFigures ? original : null}
+              page={p.index}
+              pageKey={p.key}
+              regions={p.regions}
+              onLayout={applyLayout}
+            >
               <h3>第 {p.index + 1} 页</h3>
-              {p.regions.map((r, ri) => (
+              {(layouts[p.key] ?? p.regions).map((r, ri) => (
                 <div
-                  key={ri}
+                  key={r.id}
                   role="button"
                   tabIndex={0}
-                  aria-label={`定位第 ${p.index + 1} 页区域 ${ri + 1}`}
-                  aria-pressed={pageIndex === pi && regionIndex === ri}
+                  aria-label={`定位第 ${p.index + 1} 页${r.type === 'image' ? '插图' : r.table ? '表格' : '区域'} ${ri + 1}`}
+                  aria-pressed={pageIndex === pi && regionId === r.id}
                   className={styles.regionText}
-                  onClick={() => select(pi, ri)}
-                  onMouseUp={() => select(pi, ri)}
+                  data-region-type={r.type}
+                  onClick={() => select(pi, r.id)}
+                  onMouseUp={() => select(pi, r.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      select(pi, ri)
+                      select(pi, r.id)
                     }
                   }}
                 >
-                  <Markdown
-                    content={r.text}
-                    cacheKey={`${doc.fileId}:${p.index}:${ri}`}
-                    loading={false}
-                    disableLink={false}
-                  />
+                  {r.type === 'image' ? (
+                    <OcrFigure original={original} format={format} page={p.index} box={r.box} />
+                  ) : null}
+                  {r.text ? (
+                    <Markdown
+                      content={r.text}
+                      cacheKey={`${p.key}:${r.id}`}
+                      loading={false}
+                      disableLink={false}
+                    />
+                  ) : null}
                 </div>
               ))}
-            </section>
+            </OcrPageSection>
           ))}
         </div>
       </div>

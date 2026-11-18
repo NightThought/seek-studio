@@ -39,8 +39,7 @@
   background: #fff;
   color: #222;
 }
-.preview canvas,
-.preview img {
+.preview canvas:not([hidden]) {
   width: 100%;
   height: auto;
   display: block;
@@ -72,6 +71,46 @@
 .regionText[aria-pressed='true'] {
   border-color: var(--dsw-static-blue-500);
   background: var(--dsw-alias-bg-skeleton);
+}
+.regionText[data-region-type='image'] {
+  cursor: pointer;
+}
+.recognized :global(.markdown-table-wrapper) {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+.recognized :global(.markdown-table-wrapper) table {
+  width: 100%;
+  max-width: none;
+}
+.recognized :global(.markdown-table-wrapper) :is(th, td) {
+  min-width: 4em;
+  max-width: 20em;
+  padding: 7px 8px;
+  font-size: 13px;
+  vertical-align: top;
+}
+.recognized :global(.markdown-table-wrapper) th {
+  background: var(--dsw-alias-bg-skeleton);
+}
+.recognized :global(.markdown-table-wrapper) tr:last-child td {
+  border-bottom: 0;
+}
+.figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 6px;
+}
+.figurePlaceholder {
+  display: block;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-skeleton);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 @media (max-width: 600px) {
   .columns {
