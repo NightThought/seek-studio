@@ -58,6 +58,12 @@ export type Run = {
   result?: Result
   steps: { index: number; type: string; status: string; preview?: string }[]
 }
+export const runStatusLabel: Record<Run['status'], string> = {
+  running: '运行中',
+  done: '已完成',
+  error: '失败',
+  cancelled: '已取消',
+}
 export type Recipe = {
   id: string
   kind: AppKind

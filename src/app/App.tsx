@@ -65,11 +65,26 @@ export const App = () => {
           <header className={styles.unifiedHeader}>
             {isMobile ? (
               <Button size="s" variant="outlined" onClick={openMobileSider}>
-                历史与功能
+                {t('mobileHistoryAndFunctions')}
               </Button>
             ) : null}
-            <strong>{functions.find((f) => f.value === mode)?.label}</strong>
-            <span>{mode === 'search' ? 'deepseek-flash' : settings.model}</span>
+            <strong>
+              {(() => {
+                const entry = functions.find((f) => f.value === mode)
+                return entry ? t(entry.labelKey) : mode
+              })()}
+            </strong>
+            {chat && session ? (
+              <span
+                className={styles.headerSessionTitle}
+                title={session.title || t('untitledChat')}
+              >
+                {session.title || t('untitledChat')}
+              </span>
+            ) : null}
+            <span className={styles.headerModel}>
+              {mode === 'search' ? 'deepseek-flash' : settings.model}
+            </span>
           </header>
           {saveError ? (
             <div className={styles.saveError} role="alert">

@@ -522,3 +522,30 @@ test('scheduled recipes preserve execution settings and audit logs persist witho
   assert.ok(!saved.includes('private-question'))
   assert.ok(!saved.includes('never-store'))
 })
+
+test('run deletion cleans up unreferenced assets while preserving shared files and ttsVoice preference', async (t) => {
+  const { engine, provider } = await setup(t)
+  const shared = await engine.asset('shared.pdf', Buffer.from('shared'), 'application/pdf')
+  const exclusive = await engine.asset('only-one.pdf', Buffer.from('exclusive'), 'application/pdf')
+  const staged = await engine.asset('staged.pdf', Buffer.from('staged'), 'application/pdf')
+  const r1 = await run(engine, {
+    kind: 'documents',
+    input: { fileIds: [shared.id, exclusive.id], prompt: '总结' },
+  })
+  const r2 = await run(engine, {
+    kind: 'workflow',
+    input: { text: 'hello', fileIds: [shared.id], nodes: [{ type: 'tts', prompt: '{{input}}' }] },
+    executionOptions: { ttsVoice: 'tide' },
+  })
+  assert.equal(provider.calls.filter((c) => c[0] === 'tts').at(-1)[2], 'tide')
+  const audioId = r2.result.audioId
+  assert.ok(engine.file(audioId))
+  await engine.removeRun(r1.id)
+  assert.throws(() => engine.file(exclusive.id), /文件不存在/)
+  assert.ok(engine.file(shared.id))
+  assert.ok(engine.file(staged.id))
+  await engine.removeRun(r2.id)
+  assert.throws(() => engine.file(shared.id), /文件不存在/)
+  assert.throws(() => engine.file(audioId), /文件不存在/)
+  assert.ok(engine.file(staged.id))
+})

@@ -154,7 +154,6 @@
     textarea,
     select,
     summary,
-    .runItem,
     .savedTitle,
     .nodeHeader button,
     .files button,
@@ -393,12 +392,6 @@
   padding: 4px var(--card-padding) 18px;
 }
 
-.side {
-  min-width: 0;
-  display: grid;
-  gap: 12px;
-  align-items: start;
-}
 .card {
   padding: 14px;
 }
@@ -415,7 +408,6 @@
   padding: 2px;
   margin: -2px;
 }
-.runItem,
 .savedTitle {
   width: 100%;
   box-sizing: border-box;
@@ -428,73 +420,12 @@
   font: inherit;
   cursor: pointer;
 }
-.runItem:hover,
 .savedTitle:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
 }
-.runItem[aria-pressed='true'],
 .savedTitle[aria-pressed='true'] {
   background: var(--dsw-alias-button-ghost-active-fill);
   border-color: var(--dsw-alias-button-ghost-active-border);
-}
-.runItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.runItem + .runItem {
-  margin-top: 4px;
-}
-.runItem svg {
-  flex-shrink: 0;
-  color: var(--dsw-alias-label-secondary);
-}
-.runDetails {
-  min-width: 0;
-}
-.runTitle {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 550;
-}
-.runMeta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px 8px;
-  margin-top: 4px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-}
-.runMeta time {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.runStatus {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-.runStatus::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--dsw-alias-label-tertiary);
-}
-.runStatus[data-status='done']::before {
-  background: var(--dsw-static-green-500);
-}
-.runStatus[data-status='running']::before {
-  background: var(--dsw-alias-brand-primary);
-}
-.runStatus[data-status='error']::before {
-  background: var(--dsw-alias-state-error-primary);
 }
 .saved + .saved {
   border-top: 1px solid var(--dsw-alias-border-l2);
@@ -613,7 +544,8 @@
   color: var(--dsw-static-blue-500);
   font-size: 12px;
 }
-.nodeHeader select {
+.nodeHeader select,
+.nodeSelect {
   flex: 1;
   min-width: 0;
 }
@@ -651,9 +583,6 @@
   .layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .side {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @container workbench (max-width: 440px) {
   .container {
@@ -661,9 +590,6 @@
   }
   .header {
     margin-bottom: 18px;
-  }
-  .side {
-    grid-template-columns: minmax(0, 1fr);
   }
   .runActions {
     flex: 1 1 auto;

@@ -4,6 +4,7 @@ export const executionOptions = (value = {}) => ({
   metadataEnabled: value.metadataEnabled === true,
   locale: value.locale === 'en-US' ? 'en-US' : 'zh-CN',
   location: typeof value.location === 'string' ? value.location.slice(0, 200) : '',
+  ttsVoice: value.ttsVoice === 'tide' ? 'tide' : 'stella',
 })
 export const latestReminder = (options, date = new Date()) => {
   const locale = options.locale ?? 'zh-CN'

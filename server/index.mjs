@@ -103,6 +103,10 @@ export function createStudioMiddleware({
         const run = engine.state.runs.find((r) => r.id === parts[1])
         return json(res, run ? 200 : 404, run ?? { error: '任务不存在' })
       }
+      if (method === 'DELETE' && parts[0] === 'runs' && parts.length === 2) {
+        await engine.removeRun(parts[1])
+        return json(res, 200, { ok: true })
+      }
       if (method === 'POST' && url.pathname === '/runs') {
         return json(
           res,

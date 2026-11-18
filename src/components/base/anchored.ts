@@ -18,6 +18,7 @@ export type AnchoredPosition = {
   top: number
   left?: number
   right?: number
+  width?: number
   maxHeight?: number
 }
 
@@ -37,6 +38,8 @@ export type AnchoredOptions = {
   maxHeight?: number
   /** 判定「空间不足、需要翻面」的最小纵向空间 */
   minSpace?: number
+  /** 浮层宽度与触发元素保持一致 */
+  matchWidth?: boolean
   /**
    * 用触发元素的第一个子元素作为测量与对齐基准。触发元素自身不产生盒子时
    * （如 display: contents），它的 getBoundingClientRect 是空矩形。
@@ -91,6 +94,7 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
     offset = 4,
     maxHeight,
     minSpace = 160,
+    matchWidth = false,
     measureFirstChild = false,
     measureKey,
   }: AnchoredOptions = {}
@@ -106,6 +110,7 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
       previous.top === next.top &&
       previous.left === next.left &&
       previous.right === next.right &&
+      previous.width === next.width &&
       previous.maxHeight === next.maxHeight
         ? previous
         : next
@@ -151,10 +156,23 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
         resolved === 'top'
           ? Math.max(VIEWPORT_PADDING, rect.top - offset - height)
           : rect.bottom + offset,
-      right: Math.max(VIEWPORT_PADDING, window.innerWidth - rect.right),
+      ...(matchWidth
+        ? { left: clampLeft(rect.left, rect.width), width: rect.width }
+        : { right: Math.max(VIEWPORT_PADDING, window.innerWidth - rect.right) }),
       maxHeight: height,
     })
-  }, [align, alignOffset, applyPosition, floatingRef, getAnchor, maxHeight, minSpace, offset, side])
+  }, [
+    align,
+    alignOffset,
+    applyPosition,
+    floatingRef,
+    getAnchor,
+    matchWidth,
+    maxHeight,
+    minSpace,
+    offset,
+    side,
+  ])
 
   // 打开时与内容变化时同步测量，必须在绘制前完成
   useLayoutEffect(() => {

@@ -172,11 +172,68 @@ export class StudioEngine {
     await this.save()
     return recipe
   }
+  async cleanupFiles(candidateIds) {
+    const ids = new Set(candidateIds.filter(Boolean))
+    if (!ids.size) {
+      return
+    }
+    const used = new Set()
+    for (const r of this.state.recipes) {
+      for (const f of [...(r.input?.fileIds ?? []), ...(r.input?.referenceIds ?? [])]) {
+        used.add(f)
+      }
+    }
+    for (const r of this.state.runs) {
+      for (const f of [
+        ...(r.input?.fileIds ?? []),
+        ...(r.input?.referenceIds ?? []),
+        r.result?.audioId,
+        ...(r.result?.outputs?.map((o) => o.audioId) ?? []),
+      ]) {
+        if (f) {
+          used.add(f)
+        }
+      }
+    }
+    for (const id of ids) {
+      if (!used.has(id)) {
+        const file = this.state.files.find((f) => f.id === id)
+        this.state.files = this.state.files.filter((f) => f.id !== id)
+        if (file?.path) {
+          await rm(file.path, { force: true })
+        }
+      }
+    }
+  }
   async removeRecipe(id) {
     if (this.active?.run.recipeId === id) {
       throw new Error('请先停止正在运行的任务')
     }
+    const target = this.state.recipes.find((r) => r.id === id)
     this.state.recipes = this.state.recipes.filter((r) => r.id !== id)
+    if (target) {
+      await this.cleanupFiles([
+        ...(target.input?.fileIds ?? []),
+        ...(target.input?.referenceIds ?? []),
+      ])
+    }
+    await this.save()
+  }
+  async removeRun(id) {
+    if (this.active?.run.id === id) {
+      throw new Error('请先停止正在运行的任务')
+    }
+    const target = this.state.runs.find((r) => r.id === id)
+    if (!target) {
+      throw new Error('任务不存在')
+    }
+    this.state.runs = this.state.runs.filter((r) => r.id !== id)
+    await this.cleanupFiles([
+      ...(target.input?.fileIds ?? []),
+      ...(target.input?.referenceIds ?? []),
+      target.result?.audioId,
+      ...(target.result?.outputs?.map((o) => o.audioId) ?? []),
+    ])
     await this.save()
   }
   async publish(id) {
@@ -542,9 +599,10 @@ export class StudioEngine {
         { signal }
       )
       let audioId
+      const voice = run.executionOptions?.ttsVoice === 'tide' ? 'tide' : 'stella'
       if (input.voice) {
         progress('合成语音简报')
-        const pcm = await provider.tts(summary.text.slice(0, 3500), 'stella', signal)
+        const pcm = await provider.tts(summary.text.slice(0, 3500), voice, signal)
         audioId = (await this.asset('briefing.wav', wav(pcm), 'audio/wav')).id
       }
       return {
@@ -604,12 +662,13 @@ export class StudioEngine {
             if ([...value].length > 4000) {
               throw new Error('TTS 节点输入最多 4000 字，请添加摘要节点')
             }
+            const voice = run.executionOptions?.ttsVoice === 'tide' ? 'tide' : 'stella'
             result = {
               text: value,
               audioId: (
                 await this.asset(
                   'workflow.wav',
-                  wav(await provider.tts(value, 'stella', signal)),
+                  wav(await provider.tts(value, voice, signal)),
                   'audio/wav'
                 )
               ).id,

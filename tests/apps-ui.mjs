@@ -253,7 +253,13 @@ try {
       .setInputFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) })
     await page.getByRole('button', { name: '移除文件 fixture.pdf', exact: true }).waitFor()
   }
+  const chatHistory = page.getByRole('button', { name: '对话历史', exact: true })
+  const runHistory = page.getByRole('button', { name: '应用运行记录', exact: true })
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'false')
   await choose('ocr')
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'false')
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
   await page.setViewportSize({ width: 966, height: 827 })
   const taskInput = page.getByRole('region', { name: '任务输入' })
   const startOcr = taskInput.getByRole('button', { name: '开始识别', exact: true })
@@ -372,6 +378,16 @@ try {
   await page.getByRole('button', { name: '载入脚本编辑', exact: true }).click()
   await page.getByRole('button', { name: '合成播客', exact: true }).click()
   await page.locator('audio').waitFor()
+  assert.equal(await page.getByRole('heading', { name: '运行记录', exact: true }).count(), 0)
+  await page.getByRole('complementary', { name: '已保存配置', exact: true }).waitFor()
+  const savedScript = page
+    .getByRole('region', { name: '应用运行记录' })
+    .getByRole('button', { name: /AI 新进展.*播客生成.*已完成/ })
+    .nth(1)
+  await savedScript.click()
+  await result()
+  assert.equal(await savedScript.getAttribute('aria-current'), 'true')
+  assert.equal(await page.locator('audio').count(), 0)
   await choose('meeting')
   await upload()
   await page.getByRole('button', { name: '运行会议助手', exact: true }).click()
@@ -390,6 +406,10 @@ try {
   await page.getByLabel('启用定时执行', { exact: true }).check()
   await page.getByRole('button', { name: '保存配置', exact: true }).click()
   await page.getByText('配置已保存', { exact: true }).waitFor()
+  await page
+    .getByRole('complementary', { name: '已保存配置', exact: true })
+    .getByRole('button', { name: /更新监测/ })
+    .waitFor()
   assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
   await choose('subscription')
   await page.getByLabel('订阅主题').fill('DeepSeek')
@@ -458,7 +478,76 @@ try {
   assert.ok(requests[1].messages.length >= 3)
   assert.equal(ttsCount, 1)
   assert.equal(audits.length, 1)
+  const savedChat = page
+    .getByRole('region', { name: '对话历史' })
+    .getByText('链接分析', { exact: true })
+  const savedRun = page
+    .getByRole('region', { name: '应用运行记录' })
+    .getByRole('button', { name: /运行OCR 工作台.*OCR 识别/ })
+    .first()
+  await savedChat.waitFor()
+  await page.setViewportSize({ width: 1099, height: 720 })
+  await runHistory.press('Enter')
+  await savedRun.waitFor()
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
+  const chatVisibility = await savedChat.evaluate(
+    (title) =>
+      new Promise((resolve) => {
+        const observer = new IntersectionObserver(([entry]) => {
+          observer.disconnect()
+          resolve(entry.intersectionRatio)
+        })
+        observer.observe(title.parentElement)
+      })
+  )
+  assert.ok(
+    chatVisibility > 0.99,
+    'The conversation row should stay visible with both histories open'
+  )
+  await savedRun.click({ trial: true })
+  await chatHistory.click()
+  await savedChat.waitFor({ state: 'hidden' })
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
+  await runHistory.click()
+  await savedRun.waitFor({ state: 'hidden' })
+  await chatHistory.click()
+  await page.setViewportSize({ width: 1099, height: 984 })
+  await page.mouse.move(350, 50)
+  const newChatGeometry = await page
+    .getByRole('button', { name: '开启新对话', exact: true })
+    .evaluate((button) => ({
+      width: button.getBoundingClientRect().width,
+      radius: getComputedStyle(button).borderTopLeftRadius,
+    }))
+  for (const [control, centered] of [
+    [page.getByRole('button', { name: '选择功能', exact: true }), true],
+    [chatHistory, false],
+    [runHistory, false],
+  ]) {
+    assert.equal(await control.locator('svg').count(), 2)
+    const geometry = await control.evaluate((button) => {
+      const buttonBounds = button.getBoundingClientRect()
+      const labelBounds = button.firstElementChild.getBoundingClientRect()
+      const style = getComputedStyle(button)
+      return {
+        width: buttonBounds.width,
+        radius: style.borderTopLeftRadius,
+        background: style.backgroundColor,
+        labelOffset:
+          labelBounds.x + labelBounds.width / 2 - (buttonBounds.x + buttonBounds.width / 2),
+      }
+    })
+    assert.equal(geometry.width, newChatGeometry.width)
+    if (centered) {
+      assert.equal(geometry.radius, newChatGeometry.radius)
+      assert.ok(Math.abs(geometry.labelOffset) < 1)
+    } else {
+      assert.equal(geometry.background, 'rgba(0, 0, 0, 0)')
+      assert.ok(geometry.labelOffset < -1)
+    }
+  }
   await page.screenshot({ path: '.cache/unified-chat.png', fullPage: true })
+  await page.setViewportSize({ width: 1440, height: 1100 })
   await choose('search')
   await page.getByRole('heading', { name: 'AI 搜索工作台', exact: true }).waitFor()
   assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
@@ -483,7 +572,11 @@ try {
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: '历史与功能', exact: true }).click()
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
   await choose('ocr')
+  await page.getByRole('button', { name: '历史与功能', exact: true }).click()
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
   assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
   await page.locator('input[aria-label="上传文件"]').waitFor()
   await page.screenshot({ path: '.cache/unified-mobile.png', fullPage: true })

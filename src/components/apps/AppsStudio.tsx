@@ -13,7 +13,8 @@ import { ocrMarkdown } from './ocr.js'
 import { OcrResult } from './OcrResult.js'
 import { AppFilePicker } from './AppFilePicker.js'
 import { Button } from '../base/Button.js'
-import { IconChevronDownOutline14, IconChevronRightOutline14 } from '../base/icons.js'
+import { Select } from '../base/Select.js'
+import { IconChevronDownOutline14 } from '../base/icons.js'
 import { Markdown } from '../markdown/Markdown.js'
 import { copyText } from '../../utils/clipboard.js'
 import { showToast } from '../base/toastState.js'
@@ -21,6 +22,7 @@ import {
   api,
   assetUrl,
   download,
+  runStatusLabel,
   type AppKind,
   type AppInput,
   type Asset,
@@ -78,12 +80,6 @@ const nodeLabels: Record<NodeKind, string> = {
   asr: '语音转写',
   tts: '语音合成',
 }
-const statusLabel: Record<Run['status'], string> = {
-  running: '运行中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-}
 const ocrModes = [
   { value: 'rich_layout_recognition', label: '图文混排', detail: '识别版式与原文区域' },
   { value: 'text_recognition', label: '文字识别', detail: '仅提取文字内容' },
@@ -120,6 +116,7 @@ export const AppsStudio = () => {
     metadataEnabled: settings.metadataEnabled,
     locale: settings.locale,
     location: locationName(settings.location, settings.locale),
+    ttsVoice: settings.ttsVoice,
   }
   const [run, setRun] = useState<Run | null>(null)
   const resultRef = useRef<HTMLElement>(null)
@@ -149,6 +146,9 @@ export const AppsStudio = () => {
   useEffect(() => {
     let alive = true
     const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return
+      }
       try {
         const data = await api<Snapshot>('/state')
         if (alive) {
@@ -162,10 +162,23 @@ export const AppsStudio = () => {
       }
     }
     void poll()
-    const timer = setInterval(() => void poll(), 2000)
+    const timer = setInterval(() => {
+      const state = useWorkspace.getState()
+      const inApps = state.function !== 'chat' && state.function !== 'search'
+      if (inApps || state.snapshot?.activeId) {
+        void poll()
+      }
+    }, 2000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       alive = false
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
   useEffect(() => {
@@ -175,7 +188,10 @@ export const AppsStudio = () => {
     setEnabled(false)
     setError('')
     setNotice('')
-  }, [mode])
+    if (mode !== 'chat' && mode !== 'search') {
+      void refresh().catch(() => {})
+    }
+  }, [mode, refresh])
   useEffect(() => {
     let alive = true
     const readQueue = pendingRead.current
@@ -231,6 +247,23 @@ export const AppsStudio = () => {
   const start = (value = input, id = recipeId) => {
     prepareAutoRead()
     void action(async () => {
+      const matchedRecipe = id ? snapshot?.recipes.find((r) => r.id === id) : undefined
+      if (
+        matchedRecipe &&
+        id === recipeId &&
+        ['monitor', 'subscription'].includes(kind) &&
+        JSON.stringify(value) !== JSON.stringify(matchedRecipe.input)
+      ) {
+        await api<Recipe>('/recipes', 'POST', {
+          id: matchedRecipe.id,
+          kind,
+          name: name.trim() || matchedRecipe.name,
+          input: value,
+          enabled,
+          intervalMinutes: minutes,
+          executionOptions,
+        })
+      }
       const data = await api<Run>('/runs', 'POST', {
         kind,
         input: value,
@@ -334,7 +367,6 @@ export const AppsStudio = () => {
   const busy = Boolean(snapshot?.activeId) || pending
   const missingFiles = ['ocr', 'documents', 'meeting'].includes(kind) && !input.fileIds?.length
   const currentRun = run?.id === selected && run.kind === kind ? run : null
-  const recentRuns = snapshot?.runs.filter((run) => run.kind === kind).slice(0, 30) ?? []
   const recipes = snapshot?.recipes.filter((r) => r.kind === kind) ?? []
   const currentRecipe = snapshot?.recipes.find((r) => r.id === recipeId)
   return (
@@ -661,14 +693,36 @@ export const AppsStudio = () => {
                   每天一次填 1440。需在 .env
                   配置密钥并保持本地服务运行；关闭浏览器不影响执行。首轮定时任务在保存后的一个间隔执行。
                 </p>
-                <Button
-                  size="m"
-                  variant="outlined"
-                  disabled={pending || !name.trim() || !snapshot}
-                  onClick={save}
-                >
-                  {recipeId ? '更新配置' : '保存配置'}
-                </Button>
+                {enabled && snapshot && !snapshot.configured ? (
+                  <p className={styles.error} role="status">
+                    当前未检测到服务端 .env 密钥（DEEPSEEK_API_KEY），请配置后再启用定时执行。
+                  </p>
+                ) : null}
+                <div className={styles.actions}>
+                  <Button
+                    size="m"
+                    variant="outlined"
+                    disabled={pending || !name.trim() || !snapshot}
+                    onClick={save}
+                  >
+                    {recipeId ? '更新配置' : '保存配置'}
+                  </Button>
+                  {recipeId ? (
+                    <Button
+                      size="m"
+                      variant="outlined"
+                      disabled={pending}
+                      onClick={() => {
+                        setRecipeId(undefined)
+                        setName('')
+                        setEnabled(false)
+                        setNotice('已切换为新建配置模式')
+                      }}
+                    >
+                      新建配置
+                    </Button>
+                  ) : null}
+                </div>
                 {kind === 'workflow' && recipeId ? (
                   <div className={styles.publish}>
                     <Button
@@ -711,100 +765,59 @@ export const AppsStudio = () => {
               </div>
             </details>
           </section>
-          <aside className={styles.side}>
-            <section className={styles.card}>
-              <h2>运行记录</h2>
-              {recentRuns.length ? (
-                <div className={styles.railList}>
-                  {recentRuns.map((r) => (
+          <aside className={styles.card} aria-label="已保存配置">
+            <h2>已保存配置</h2>
+            {recipes.length ? (
+              <div className={styles.railList}>
+                {recipes.map((r) => (
+                  <div className={styles.saved} key={r.id}>
                     <button
                       type="button"
-                      className={styles.runItem}
-                      aria-pressed={selected === r.id}
-                      key={r.id}
-                      onClick={() => useWorkspace.setState({ runId: r.id })}
+                      className={styles.savedTitle}
+                      aria-pressed={recipeId === r.id}
+                      disabled={pending}
+                      onClick={() => load(r)}
                     >
-                      <span className={styles.runDetails}>
-                        <span className={styles.runTitle} title={r.message || r.progress}>
-                          {r.message || r.progress}
-                        </span>
-                        <span className={styles.runMeta}>
-                          <span className={styles.runStatus} data-status={r.status}>
-                            {statusLabel[r.status]}
-                          </span>
-                          <time dateTime={new Date(r.createdAt).toISOString()}>
-                            {new Date(r.createdAt).toLocaleString('zh-CN', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </time>
-                        </span>
+                      <strong>{r.name}</strong>
+                      <span>
+                        {r.enabled
+                          ? `下次：${new Date(r.nextRunAt ?? 0).toLocaleString()}`
+                          : '手动运行'}
+                        {r.hasBaseline ? ' · 已有快照' : ''}
                       </span>
-                      <IconChevronRightOutline14 />
                     </button>
-                  ))}
-                </div>
-              ) : (
-                <p className={styles.emptyRail}>还没有运行记录。完成的任务可在这里回看。</p>
-              )}
-            </section>
-            <section className={styles.card}>
-              <h2>已保存配置</h2>
-              {recipes.length ? (
-                <div className={styles.railList}>
-                  {recipes.map((r) => (
-                    <div className={styles.saved} key={r.id}>
-                      <button
-                        type="button"
-                        className={styles.savedTitle}
-                        aria-pressed={recipeId === r.id}
-                        disabled={pending}
-                        onClick={() => load(r)}
+                    <div className={styles.actions}>
+                      <Button
+                        size="s"
+                        variant="outlined"
+                        disabled={busy}
+                        onClick={() => start(r.input, r.id)}
                       >
-                        <strong>{r.name}</strong>
-                        <span>
-                          {r.enabled
-                            ? `下次：${new Date(r.nextRunAt ?? 0).toLocaleString()}`
-                            : '手动运行'}
-                          {r.hasBaseline ? ' · 已有快照' : ''}
-                        </span>
-                      </button>
-                      <div className={styles.actions}>
-                        <Button
-                          size="s"
-                          variant="outlined"
-                          disabled={busy}
-                          onClick={() => start(r.input, r.id)}
-                        >
-                          运行
-                        </Button>
-                        <Button
-                          size="s"
-                          variant="outlined"
-                          disabled={pending}
-                          onClick={() =>
-                            void action(async () => {
-                              await api(`/recipes/${r.id}`, 'DELETE')
-                              if (recipeId === r.id) {
-                                setRecipeId(undefined)
-                              }
-                              await refresh()
-                            })
-                          }
-                        >
-                          删除
-                        </Button>
-                      </div>
+                        运行
+                      </Button>
+                      <Button
+                        size="s"
+                        variant="outlined"
+                        disabled={pending}
+                        onClick={() =>
+                          void action(async () => {
+                            await api(`/recipes/${r.id}`, 'DELETE')
+                            if (recipeId === r.id) {
+                              setRecipeId(undefined)
+                            }
+                            await refresh()
+                          })
+                        }
+                      >
+                        删除
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className={styles.emptyRail}>在「保存配置与定时运行」中保存常用参数。</p>
-              )}
-            </section>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.emptyRail}>在「保存配置与定时运行」中保存常用参数。</p>
+            )}
           </aside>
         </div>
         {currentRun ? (
@@ -816,6 +829,17 @@ export const AppsStudio = () => {
               setInput({ script })
               setNotice('脚本已载入编辑区，可以修改并合成音频')
             }}
+            onLoadInput={() => {
+              setForms((f) => ({
+                ...f,
+                [currentRun.kind]: {
+                  ...f[currentRun.kind],
+                  ...currentRun.input,
+                  ...(currentRun.result?.script ? { script: currentRun.result.script } : {}),
+                },
+              }))
+              setNotice('已将该次任务的参数回填至输入区')
+            }}
             onRetry={() => start(currentRun.input, currentRun.recipeId ?? undefined)}
             busy={busy}
           />
@@ -824,6 +848,11 @@ export const AppsStudio = () => {
     </div>
   )
 }
+
+const nodeOptions = (Object.entries(nodeLabels) as [NodeKind, string][]).map(([value, label]) => ({
+  value,
+  label,
+}))
 
 const FlowEditor = ({
   nodes,
@@ -847,21 +876,15 @@ const FlowEditor = ({
         <div key={i} className={styles.node}>
           <div className={styles.nodeHeader}>
             <span>{String(i + 1).padStart(2, '0')}</span>
-            <select
-              aria-label={`节点 ${i + 1} 类型`}
+            <Select
+              ariaLabel={`节点 ${i + 1} 类型`}
+              className={styles.nodeSelect}
               value={n.type}
-              onChange={(e) =>
-                onChange(
-                  nodes.map((x, j) => (j === i ? { ...x, type: e.target.value as NodeKind } : x))
-                )
+              options={nodeOptions}
+              onChange={(value) =>
+                onChange(nodes.map((x, j) => (j === i ? { ...x, type: value } : x)))
               }
-            >
-              {Object.entries(nodeLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            />
             <button type="button" disabled={i === 0} aria-label="上移" onClick={() => move(i, -1)}>
               ↑
             </button>
@@ -910,6 +933,7 @@ const ResultView = ({
   sectionRef,
   assets,
   onScript,
+  onLoadInput,
   onRetry,
   busy,
 }: {
@@ -917,6 +941,7 @@ const ResultView = ({
   sectionRef: Ref<HTMLElement>
   assets: Asset[]
   onScript: (s: string) => void
+  onLoadInput: () => void
   onRetry: () => void
   busy: boolean
 }) => {
@@ -930,7 +955,7 @@ const ResultView = ({
     <section className={styles.result} aria-label="任务结果" ref={sectionRef} tabIndex={-1}>
       <div className={styles.resultTop}>
         <div>
-          <span className={styles.hint}>{statusLabel[run.status]}</span>
+          <span className={styles.hint}>{runStatusLabel[run.status]}</span>
           <h2>{run.progress}</h2>
         </div>
         <div className={styles.actions}>
@@ -970,6 +995,9 @@ const ResultView = ({
             }
           >
             导出 JSON
+          </Button>
+          <Button size="s" variant="outlined" disabled={busy} onClick={onLoadInput}>
+            回填参数
           </Button>
           <Button size="s" variant="outlined" disabled={busy} onClick={onRetry}>
             重新运行

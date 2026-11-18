@@ -69,6 +69,57 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
+.recentBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.recentLabel {
+  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+}
+.recentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.recentChip {
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.recentChip:hover:not(:disabled),
+.recentChip[aria-pressed='true'] {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+}
+.clearHistory {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.clearHistory:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: underline;
+}
 .empty {
   padding: 52px 16px;
   text-align: center;

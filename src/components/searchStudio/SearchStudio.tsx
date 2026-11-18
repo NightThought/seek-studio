@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { useWorkspace } from '../../services/workspace.js'
+import { selectFunction, useWorkspace } from '../../services/workspace.js'
 import { autoReadReply, prepareAutoRead } from '../../services/speech/readAloud.js'
+import { setDraftText } from '../../services/chat/drafts.js'
 import { getReplyText } from '../../services/chat/reply.js'
+import { newChat } from '../../services/chat/store.js'
 import { useSettings } from '../../services/settings.js'
 import { createLatestReminder } from '../../services/chat/latestReminder.js'
 import { describeReply } from '../../services/chat/describe.js'
@@ -17,11 +19,38 @@ import { SourceCard } from '../search/SourceCard.js'
 import { ensureApiKey, openSettings } from '../settings/settingsDialogState.js'
 import styles from './SearchStudio.module.css'
 
+type SearchHistoryItem = {
+  id: string
+  query: string
+  reply: AssistantMessage
+  createdAt: number
+}
+
+const SEARCH_HISTORY_KEY = 'seek-studio:search-history'
+
+const loadSearchHistory = (): SearchHistoryItem[] => {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY)
+    return raw ? (JSON.parse(raw) as SearchHistoryItem[]) : []
+  } catch {
+    return []
+  }
+}
+
+const saveSearchHistory = (items: SearchHistoryItem[]) => {
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(items.slice(0, 10)))
+  } catch {
+    // ignore quota errors
+  }
+}
+
 export const SearchStudio = () => {
   const t = useTranslate()
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
   const [reply, setReply] = useState<AssistantMessage | null>(null)
+  const [history, setHistory] = useState<SearchHistoryItem[]>(loadSearchHistory)
   const controller = useRef<AbortController | null>(null)
   const busy = reply?.status === 'pending' || reply?.status === 'streaming'
   useEffect(() => () => controller.current?.abort(), [])
@@ -33,23 +62,30 @@ export const SearchStudio = () => {
     prepareAutoRead()
     const request = new AbortController()
     controller.current = request
-    setSubmitted(question.trim())
+    const trimmed = question.trim()
+    setSubmitted(trimmed)
     const settings = useSettings.getState()
     try {
       const result = await runSearch(
         settings.apiKey ?? '',
-        question.trim(),
+        trimmed,
         settings.metadataEnabled ? createLatestReminder(settings) : undefined,
         request.signal,
         setReply,
         settings.safetyEnabled
       )
-      if (
-        useWorkspace.getState().function === 'search' &&
-        result.status === 'done' &&
-        result.stopReason !== 'refusal'
-      ) {
-        autoReadReply(result.id, getReplyText(result))
+      if (result.status === 'done' && result.stopReason !== 'refusal') {
+        setHistory((prev) => {
+          const next = [
+            { id: result.id, query: trimmed, reply: result, createdAt: Date.now() },
+            ...prev.filter((item) => item.query !== trimmed),
+          ].slice(0, 10)
+          saveSearchHistory(next)
+          return next
+        })
+        if (useWorkspace.getState().function === 'search') {
+          autoReadReply(result.id, getReplyText(result))
+        }
       }
     } finally {
       controller.current = null
@@ -104,6 +140,40 @@ export const SearchStudio = () => {
             )}
           </div>
         </form>
+        {history.length ? (
+          <div className={styles.recentBar}>
+            <span className={styles.recentLabel}>{t('searchRecentHistory')}</span>
+            <div className={styles.recentList}>
+              {history.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={styles.recentChip}
+                  aria-pressed={reply?.id === item.id}
+                  disabled={busy}
+                  onClick={() => {
+                    setQuery(item.query)
+                    setSubmitted(item.query)
+                    setReply(item.reply)
+                  }}
+                >
+                  {item.query}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={styles.clearHistory}
+              disabled={busy}
+              onClick={() => {
+                setHistory([])
+                saveSearchHistory([])
+              }}
+            >
+              {t('searchClearHistory')}
+            </button>
+          </div>
+        ) : null}
         {reply ? (
           <SearchResult
             query={submitted}
@@ -194,6 +264,21 @@ const SearchResult = ({
           </Button>
           <Button size="s" variant="outlined" disabled={busy || !markdown} onClick={download}>
             {t('searchExport')}
+          </Button>
+          <Button
+            size="s"
+            variant="outlined"
+            disabled={busy || !answer?.markdown}
+            onClick={() => {
+              newChat()
+              setDraftText(
+                null,
+                `基于以下联网搜索结果继续深入讨论：\n\n问题：${query}\n\n回答摘要：\n${(answer?.markdown ?? '').slice(0, 4000)}\n\n我想继续了解：`
+              )
+              selectFunction('chat')
+            }}
+          >
+            {t('searchContinueInChat')}
           </Button>
           <Button size="s" variant="outlined" disabled={busy} onClick={onRetry}>
             {t('retry')}
