@@ -132,7 +132,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           </span>
         </div>
       ) : null}
-      {!streaming && !refused && view.searchResults.length > 0 ? (
+      {!streaming && view.searchResults.length > 0 ? (
         <div
           className={clsx(styles.summary, panelEntry === summaryEntry && styles.summaryActive)}
           onClick={() => toggleSearchPanel(summaryEntry, view.searchResults)}

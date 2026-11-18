@@ -106,6 +106,7 @@ export const en = {
   replyRefusedStatus: 'Refused by provider',
   replyRefusedPartial: 'The provider ultimately refused this response. The text below was received before refusal and may be incomplete. The specific trigger is unknown.',
   replyRefusedEmpty: 'The provider refused this request. No answer text was received. The specific trigger is unknown.',
+  replyRefusedSources: 'The provider refused this request with no answer text to display. Received sources remain available; they are not a model answer and do not identify the refusal trigger.',
   replyRefused: "Sorry, that's beyond my current scope. Let's talk about something else.",
   messageThinkDuration: 'Thought for {count} second',
   messageThinkDurationPlural: 'Thought for {count} seconds',

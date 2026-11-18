@@ -1,6 +1,7 @@
 import { isTranslationKey, translate } from '../../i18n/index.js'
 import { classifyStatus } from '../api/errors.js'
 import type { AssistantMessage } from './types.js'
+import { buildReplyView } from './view.js'
 
 export type Notice = {
   text: string
@@ -21,7 +22,12 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
     const hasText = reply.blocks.some(
       (block) => block.type === 'text' && !block.isTemplate && block.text.trim()
     )
-    return { text: translate(hasText ? 'replyRefusedPartial' : 'replyRefusedEmpty') }
+    const hasSources = buildReplyView(reply, false).sources.length > 0
+    return {
+      text: translate(
+        hasText ? 'replyRefusedPartial' : hasSources ? 'replyRefusedSources' : 'replyRefusedEmpty'
+      ),
+    }
   }
   if (reply.status === 'error' && reply.error) {
     const { kind, status, localMessage } = reply.error

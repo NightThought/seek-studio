@@ -100,6 +100,7 @@ export const zh = {
   replyRefusedStatus: '已被上游拒答',
   replyRefusedPartial: '此回答最终被上游拒答。以下为拒答前已接收的片段，可能不完整，具体触发原因未知。',
   replyRefusedEmpty: '此请求已被上游拒答，未收到可展示的回答正文。具体触发原因未知。',
+  replyRefusedSources: '此请求已被上游拒答，没有可展示的回答正文。已收到的搜索资料仍可查看，但不代表模型回答，也不能据此判断拒答原因。',
   replyRefused: '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。',
   messageThinkDuration: '已思考（用时 {count} 秒）',
   messageThinkDurationPlural: '已思考（用时 {count} 秒）',

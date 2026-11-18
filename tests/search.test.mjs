@@ -124,6 +124,39 @@ test('refusal retains streamed text for labeled display but excludes continuatio
   assert.equal(exportSearchMarkdown('Question', reply, labels), '')
 })
 
+test('refusal displays text before tool calls and distinguishes sources from answer text', async () => {
+  const { buildReplyView } = await import('../.cache/tests/services/chat/view.js')
+  const { describeReply } = await import('../.cache/tests/services/chat/describe.js')
+  const { translate } = await import('../.cache/tests/i18n/index.js')
+  const end = [
+    { type: 'message_delta', delta: { stop_reason: 'refusal', stop_sequence: null } },
+    { type: 'message_stop' },
+  ]
+  globalThis.fetch = async () =>
+    respond([
+      block(7, { type: 'text', text: 'Received before search.', citations: [citation] }),
+      ...successEvents.slice(0, 2),
+      ...end,
+    ])
+  let reply = await search()
+  const view = buildReplyView(reply, false)
+  assert.equal(view.answer.text, 'Received before search.')
+  assert.match(view.answer.markdown, /\[citation:1\]/)
+  assert.equal(view.searchResults.length, 1)
+  assert.equal(describeReply(reply).text, translate('replyRefusedPartial'))
+
+  globalThis.fetch = async () => respond([...successEvents.slice(0, 2), ...end])
+  reply = await search()
+  assert.equal(buildReplyView(reply, false).answer, null)
+  assert.equal(buildReplyView(reply, false).searchResults.length, 1)
+  assert.equal(describeReply(reply).text, translate('replyRefusedSources'))
+
+  globalThis.fetch = async () => respond(end)
+  reply = await search()
+  assert.equal(buildReplyView(reply, false).answer, null)
+  assert.equal(describeReply(reply).text, translate('replyRefusedEmpty'))
+})
+
 test('max-token output is identified as incomplete; empty responses cannot export', async () => {
   globalThis.fetch = async () =>
     respond([

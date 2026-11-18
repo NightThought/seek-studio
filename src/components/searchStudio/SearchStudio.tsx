@@ -137,7 +137,7 @@ const SearchResult = ({
   const view = useReplyView(reply, busy)
   const refused = reply.stopReason === 'refusal'
   const answer = view.answer
-  const sources = refused ? [] : view.sources.filter((source) => sourceHref(source.url))
+  const sources = view.sources.filter((source) => sourceHref(source.url))
   const notice = busy ? null : describeReply(reply)
   const markdown = exportSearchMarkdown(query, reply, {
     sources: t('searchSources'),
