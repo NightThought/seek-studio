@@ -230,17 +230,10 @@ try {
   const ocrConversation = state.runs[0].conversationId
   await choose('documents')
   await upload()
-  await page.getByLabel('应用消息', { exact: true }).fill('比较这些资料的结论')
-  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByRole('textbox', { name: /分析问题/ }).fill('比较这些资料的结论')
+  await page.getByRole('button', { name: '运行文档分析', exact: true }).click()
   await result()
-  const docConversation = state.runs[0].conversationId
-  await page.getByLabel('应用消息', { exact: true }).fill('请进一步解释第一点')
-  await page.getByRole('button', { name: '发送', exact: true }).click()
-  await page.getByText('请进一步解释第一点', { exact: true }).first().waitFor()
-  assert.equal(state.runs[0].conversationId, docConversation)
-  await page.waitForFunction(
-    () => document.querySelectorAll('[aria-label="任务结果"]').length === 2
-  )
+  assert.equal(state.runs[0].input.prompt, '比较这些资料的结论')
   await choose('podcast')
   await page.getByLabel('播客主题', { exact: true }).fill('AI 新进展')
   await page.getByRole('button', { name: '生成脚本', exact: true }).click()
@@ -255,10 +248,9 @@ try {
   await page.getByText('完整转写文本', { exact: true }).click()
   await page.getByText('[0:00] 会议转写。', { exact: true }).waitFor()
   await choose('monitor')
-  await page
-    .getByLabel('应用消息', { exact: true })
-    .fill('检查 https://example.org/changelog，是否增加了离线功能？')
-  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByLabel('网页地址').fill('https://example.org/changelog')
+  await page.getByLabel('检测目标').fill('是否增加了离线功能？')
+  await page.getByRole('button', { name: '运行网页监测', exact: true }).click()
   await result()
   assert.equal(state.runs[0].input.url, 'https://example.org/changelog')
   assert.match(state.runs[0].input.goal, /离线功能/)
@@ -267,16 +259,10 @@ try {
   await page.getByLabel('启用定时执行', { exact: true }).check()
   await page.getByRole('button', { name: '保存配置', exact: true }).click()
   await page.getByText('配置已保存', { exact: true }).waitFor()
-  assert.equal(
-    await page
-      .getByRole('complementary', { name: '功能配置' })
-      .getByText('保存配置与定时运行', { exact: true })
-      .count(),
-    1
-  )
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
   await choose('subscription')
-  await page.getByLabel('应用消息', { exact: true }).fill('DeepSeek')
-  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await page.getByLabel('订阅主题').fill('DeepSeek')
+  await page.getByRole('button', { name: '运行信息订阅', exact: true }).click()
   await result()
   await choose('workflow')
   await page.getByLabel('工作流输入', { exact: true }).fill('DeepSeek API')
@@ -359,17 +345,13 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: '历史与功能', exact: true }).click()
   await choose('ocr')
-  await page
-    .getByRole('complementary', { name: '功能配置' })
-    .getByRole('button', { name: '关闭', exact: true })
-    .click()
-  await page.getByRole('button', { name: '功能配置', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
   await page.locator('input[aria-label="上传文件"]').waitFor()
   await page.screenshot({ path: '.cache/unified-mobile.png', fullPage: true })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   assert.deepEqual(errors, [])
   console.log(
-    'PASS: unified seven apps, conversation history, natural URL goals, right schedules, PDF page/region mapping, Markdown tables, settings persistence, safety audit, metadata removal, automatic speech, mobile layout'
+    'PASS: seven standalone apps, run history, monitoring goals, inline schedules, PDF page/region mapping, Markdown tables, settings persistence, safety audit, metadata removal, automatic speech, mobile layout'
   )
 } catch (error) {
   const page = browser.contexts()[0]?.pages()[0]

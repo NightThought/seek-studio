@@ -15,12 +15,11 @@ export const functions: { value: WorkspaceFunction; label: string }[] = [
 ]
 export const useWorkspace = create(() => ({
   function: 'chat' as WorkspaceFunction,
-  conversationId: null as string | null,
+  runId: null as string | null,
   snapshot: null as Snapshot | null,
-  configOpen: typeof window === 'undefined' || window.innerWidth >= 1100,
 }))
-export const selectFunction = (value: WorkspaceFunction, conversationId: string | null = null) => {
+export const selectFunction = (value: WorkspaceFunction, runId: string | null = null) => {
   stopReadAloud()
-  useWorkspace.setState({ function: value, conversationId })
+  useWorkspace.setState({ function: value, runId })
 }
 export const setAppSnapshot = (snapshot: Snapshot) => useWorkspace.setState({ snapshot })

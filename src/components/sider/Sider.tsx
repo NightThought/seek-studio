@@ -19,13 +19,7 @@ import styles from './Sider.module.css'
 export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
   const workspace = useWorkspace()
-  const appThreads = [
-    ...new Map(
-      [...(workspace.snapshot?.runs ?? [])]
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .map((r) => [r.conversationId ?? r.id, r])
-    ).values(),
-  ].sort((a, b) => b.createdAt - a.createdAt)
+  const appRuns = workspace.snapshot?.runs ?? []
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
@@ -84,11 +78,8 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
         type="button"
         className={styles.newChat}
         onClick={() => {
-          if (workspace.function === 'search') {
-            selectFunction('chat')
-          }
+          selectFunction('chat')
           newChat()
-          useWorkspace.setState({ conversationId: null })
           closeMobileSider()
         }}
       >
@@ -99,19 +90,17 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
       </button>
       <div className={styles.listWrap}>
         <div className={styles.list}>
-          {appThreads.length ? (
+          {appRuns.length ? (
             <div className={styles.section}>
-              <div className={styles.sectionHeader}>应用会话</div>
-              {appThreads.map((run) => (
+              <div className={styles.sectionHeader}>应用运行记录</div>
+              {appRuns.map((run) => (
                 <button
                   type="button"
-                  key={run.conversationId ?? run.id}
+                  key={run.id}
                   className={styles.appThread}
-                  aria-current={
-                    workspace.conversationId === (run.conversationId ?? run.id) ? 'true' : undefined
-                  }
+                  aria-current={workspace.runId === run.id ? 'true' : undefined}
                   onClick={() => {
-                    selectFunction(run.kind, run.conversationId ?? run.id)
+                    selectFunction(run.kind, run.id)
                     closeMobileSider()
                   }}
                 >

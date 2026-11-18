@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { useWorkspace, selectFunction, setAppSnapshot } from '../../services/workspace.js'
+import { useWorkspace, setAppSnapshot } from '../../services/workspace.js'
 import { locationName } from '../../services/chat/latestReminder.js'
 import { useSettings } from '../../services/settings.js'
 import {
@@ -31,47 +30,40 @@ import {
 } from './api.js'
 import styles from './AppsStudio.module.css'
 
-const catalog: { kind: AppKind; name: string; tag: string; description: string }[] = [
+const catalog: { kind: AppKind; name: string; description: string }[] = [
   {
     kind: 'ocr',
     name: 'OCR 工作台',
-    tag: '01 / DOCUMENT',
     description: '批量识别文档，查看逐页文字、区域坐标并导出。',
   },
   {
     kind: 'documents',
     name: '文档分析',
-    tag: '02 / ANALYZE',
     description: '上传文档，阅读图表、提问或比较多份资料。',
   },
   {
     kind: 'podcast',
     name: '播客生成器',
-    tag: '03 / AUDIO',
     description: '搜索主题 → 编辑双人脚本 → 合成可下载的播客。',
   },
   {
     kind: 'meeting',
     name: '会议助手',
-    tag: '04 / TRANSCRIBE',
     description: '长录音自动分段转写，整理纪要、决策与待办。',
   },
   {
     kind: 'monitor',
     name: '网页监测',
-    tag: '05 / MONITOR',
     description: '保存网页快照，定期对比正文变化并生成摘要。',
   },
   {
     kind: 'subscription',
     name: '信息订阅',
-    tag: '06 / BRIEFING',
     description: '按主题收集资讯、去重并生成可收听的简报。',
   },
   {
     kind: 'workflow',
     name: '工作流',
-    tag: '07 / AUTOMATE',
     description: '组合 API 节点，顺序运行、定时执行或发布本地 API。',
   },
 ]
@@ -107,9 +99,9 @@ const seed: Record<AppKind, AppInput> = {
   },
 }
 
-export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) => {
+export const AppsStudio = () => {
   const mode = useWorkspace((s) => s.function),
-    conversationId = useWorkspace((s) => s.conversationId)
+    selected = useWorkspace((s) => s.runId)
   const kind: AppKind = mode === 'chat' || mode === 'search' ? 'ocr' : mode
   const settings = useSettings()
   const executionOptions = {
@@ -119,10 +111,8 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
     locale: settings.locale,
     location: locationName(settings.location, settings.locale),
   }
-  const [message, setMessage] = useState('')
-  const [runs, setRuns] = useState<Run[]>([])
+  const [run, setRun] = useState<Run | null>(null)
   const pendingRead = useRef(new Set<string>())
-  const loaded = useRef<string | null>(null)
   const [forms, setForms] = useState(seed)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState('')
@@ -167,65 +157,49 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
   }, [])
   useEffect(() => {
     generation.current++
-    loaded.current = null
-    setMessage('')
-    setRuns([])
     setRecipeId(undefined)
     setName('')
     setEnabled(false)
     setError('')
     setNotice('')
-  }, [mode, conversationId])
+  }, [mode])
   useEffect(() => {
     let alive = true
-    if (!conversationId) {
-      setRuns([])
+    const readQueue = pendingRead.current
+    if (!selected) {
+      setRun(null)
       return
     }
-    const summaries = (snapshot?.runs ?? [])
-      .filter((r) => (r.conversationId ?? r.id) === conversationId)
-      .sort((a, b) => a.createdAt - b.createdAt)
-    void Promise.all(summaries.map((r) => api<Run>(`/runs/${r.id}`)))
-      .then((data) => {
+    const poll = async () => {
+      try {
+        const data = await api<Run>(`/runs/${selected}`)
         if (!alive) {
           return
         }
-        setRuns(data)
-        const last = data.at(-1)
-        if (last && loaded.current !== conversationId) {
-          loaded.current = conversationId
-          setForms((f) => ({ ...f, [last.kind]: last.input }))
-          setRecipeId(last.recipeId ?? undefined)
-          const recipe = snapshot?.recipes.find((r) => r.id === last.recipeId)
-          if (recipe) {
-            setName(recipe.name)
-            setEnabled(recipe.enabled)
-            setMinutes(recipe.intervalMinutes)
-          }
+        setRun(data)
+        if (data.status === 'running') {
+          timer = setTimeout(poll, 1500)
+        } else if (readQueue.delete(data.id) && data.status === 'done') {
+          autoReadReply(
+            data.id,
+            data.result?.documents ? ocrMarkdown(data.result.documents) : (data.result?.text ?? '')
+          )
         }
-        for (const run of data) {
-          if (
-            run.status !== 'running' &&
-            pendingRead.current.delete(run.id) &&
-            run.status === 'done' &&
-            useWorkspace.getState().conversationId === conversationId
-          ) {
-            autoReadReply(
-              run.id,
-              run.result?.documents ? ocrMarkdown(run.result.documents) : (run.result?.text ?? '')
-            )
-          }
-        }
-      })
-      .catch((e) => {
+      } catch (e) {
         if (alive) {
           setError((e as Error).message)
+          timer = setTimeout(poll, 2000)
         }
-      })
+      }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void poll()
     return () => {
       alive = false
+      readQueue.delete(selected)
+      clearTimeout(timer)
     }
-  }, [snapshot, conversationId])
+  }, [selected])
   const action = async (fn: () => Promise<void>) => {
     if (pending) {
       return
@@ -241,53 +215,26 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
       setPending(false)
     }
   }
-  const start = (value = input, id = recipeId, userMessage = message.trim()) => {
+  const start = (value = input, id = recipeId) => {
     prepareAutoRead()
     void action(async () => {
       const data = await api<Run>('/runs', 'POST', {
         kind,
         input: value,
         recipeId: id,
-        conversationId,
-        message:
-          userMessage ||
-          value.goal ||
-          value.prompt ||
-          value.topic ||
-          value.text ||
-          `运行${entry.name}`,
+        message: value.goal || value.prompt || value.topic || value.text || `运行${entry.name}`,
         executionOptions,
       })
+      if (useWorkspace.getState().function !== mode || useWorkspace.getState().runId !== selected) {
+        await refresh()
+        return
+      }
+      pendingRead.current.clear()
       pendingRead.current.add(data.id)
-      useWorkspace.setState({ conversationId: data.conversationId ?? data.id })
-      setRuns((prev) => [...prev, data])
-      setMessage('')
+      useWorkspace.setState({ runId: data.id })
+      setRun(data)
       await refresh()
     })
-  }
-  const send = () => {
-    const text = message.trim()
-    let value = { ...input }
-    if (text) {
-      if (kind === 'documents' || kind === 'meeting') {
-        value.prompt = text
-      }
-      if (kind === 'monitor') {
-        value.goal = text
-        const url = text.match(/https?:\/\/[^\s<>"'，。；、）)]+/i)?.[0]
-        if (url) {
-          value.url = url
-        }
-      }
-      if (kind === 'podcast' || kind === 'subscription') {
-        value.topic = text
-      }
-      if (kind === 'workflow') {
-        value.text = text
-      }
-    }
-    setInput(value)
-    start(value, recipeId, text)
   }
   const save = () =>
     void action(async () => {
@@ -306,8 +253,7 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
     })
   const load = (recipe: Recipe) => {
     generation.current++
-    selectFunction(recipe.kind)
-    loaded.current = null
+    useWorkspace.setState({ runId: null })
     setForms((f) => ({ ...f, [recipe.kind]: recipe.input }))
     setRecipeId(recipe.id)
     setName(recipe.name)
@@ -386,6 +332,10 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
   return (
     <div className={styles.page}>
       <div className={styles.container}>
+        <header className={styles.header}>
+          <h1>{entry.name}</h1>
+          <p>{entry.description}</p>
+        </header>
         {error ? (
           <div className={styles.error} role="alert">
             {error}
@@ -411,421 +361,380 @@ export const AppsStudio = ({ configHost }: { configHost: HTMLElement | null }) =
             {notice}
           </p>
         ) : null}
-        {configHost
-          ? createPortal(
-              <div className={styles.configPanel}>
-                <section className={styles.card} aria-label="应用配置">
-                  {kind === 'ocr' ? (
+        <div className={styles.layout}>
+          <section className={styles.card} aria-label="任务输入">
+            {kind === 'ocr' ? (
+              <>
+                {filePicker()}
+                <label className={styles.field}>
+                  识别模式
+                  <select
+                    value={input.purpose}
+                    onChange={(e) => setInput({ purpose: e.target.value })}
+                  >
+                    <option value="rich_layout_recognition">图文混排与区域坐标</option>
+                    <option value="text_recognition">文字识别</option>
+                  </select>
+                </label>
+                <p className={styles.hint}>
+                  最多 20 个文件，每个不超过 100 MiB。复杂表格会保留在识别文本中，可导出进一步整理。
+                </p>
+              </>
+            ) : null}
+            {kind === 'documents' ? (
+              <>
+                {filePicker()}
+                <label className={styles.field}>
+                  分析问题
+                  <textarea
+                    rows={5}
+                    value={input.prompt}
+                    onChange={(e) => setInput({ prompt: e.target.value })}
+                  />
+                </label>
+                <div className={styles.actions}>
+                  {[
+                    '总结内容并引用原文证据',
+                    '比较这些文档的共同点、差异和矛盾，注明文件名',
+                    '提取关键数据与表格，说明无法确认的内容',
+                  ].map((s) => (
+                    <button type="button" key={s} onClick={() => setInput({ prompt: s })}>
+                      {s.slice(0, 8)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {kind === 'podcast' ? (
+              <>
+                <label className={styles.field}>
+                  播客主题
+                  <input
+                    value={input.topic}
+                    onChange={(e) => setInput({ topic: e.target.value })}
+                    placeholder="例如：本周开源 AI 的重要进展"
+                  />
+                </label>
+                <label className={styles.field}>
+                  双人脚本（A 女声 / B 男声）
+                  <textarea
+                    rows={10}
+                    value={input.script}
+                    onChange={(e) => setInput({ script: e.target.value })}
+                    placeholder={'A: 大家好，欢迎收听。\nB: 今天我们聊聊……'}
+                  />
+                </label>
+                <p className={styles.hint}>
+                  先生成脚本，编辑确认后合成音频。每行以 A: 或 B: 开头。
+                </p>
+              </>
+            ) : null}
+            {kind === 'meeting' ? (
+              <>
+                {filePicker('fileIds', true)}
+                {filePicker('referenceIds')}
+                <label className={styles.field}>
+                  纪要要求
+                  <textarea
+                    rows={3}
+                    value={input.prompt}
+                    onChange={(e) => setInput({ prompt: e.target.value })}
+                    placeholder="例如：重点提取项目决策和待办"
+                  />
+                </label>
+                <p className={styles.hint}>
+                  自动转为单声道并按 110
+                  秒切分。时间为片段起点，不提供逐字时间戳或说话人身份识别。最大 100 MiB，建议不超过
+                  3 小时。
+                </p>
+              </>
+            ) : null}
+            {kind === 'monitor' ? (
+              <>
+                <label className={styles.field}>
+                  网页地址
+                  <input
+                    type="url"
+                    value={input.url}
+                    onChange={(e) => setInput({ url: e.target.value })}
+                    placeholder="https://example.com/changelog"
+                  />
+                </label>
+                <label className={styles.field}>
+                  检测目标
+                  <textarea
+                    rows={3}
+                    value={input.goal ?? ''}
+                    onChange={(e) => setInput({ goal: e.target.value })}
+                    placeholder="例如：是否发布新版本？哪些更新影响现有使用方式？"
+                  />
+                </label>
+                <label className={styles.field}>
+                  忽略包含以下文本的行（每行一条，可选）
+                  <textarea
+                    rows={3}
+                    value={input.ignore}
+                    onChange={(e) => setInput({ ignore: e.target.value })}
+                  />
+                </label>
+                <p className={styles.hint}>
+                  填写网页地址与检测目标即可运行。保存配置后可定期比较网页变化。
+                </p>
+              </>
+            ) : null}
+            {kind === 'subscription' ? (
+              <>
+                <label className={styles.field}>
+                  订阅主题
+                  <input
+                    maxLength={100}
+                    value={input.topic}
+                    onChange={(e) => setInput({ topic: e.target.value })}
+                    placeholder="例如：DeepSeek 开源模型"
+                  />
+                </label>
+                <label className={styles.field}>
+                  内容偏好
+                  <textarea
+                    rows={3}
+                    value={input.preferences}
+                    onChange={(e) => setInput({ preferences: e.target.value })}
+                  />
+                </label>
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={input.voice}
+                    onChange={(e) => setInput({ voice: e.target.checked })}
+                  />
+                  同时生成语音简报（前 3500 字）
+                </label>
+                <p className={styles.hint}>
+                  搜索最近一天的资料，按链接和内容去重。简报保存在本地运行记录，不发送外部消息。
+                </p>
+              </>
+            ) : null}
+            {kind === 'workflow' ? (
+              <>
+                <label className={styles.field}>
+                  工作流输入
+                  <textarea
+                    rows={3}
+                    value={input.text}
+                    onChange={(e) => setInput({ text: e.target.value })}
+                    placeholder="输入搜索主题、网页地址或需要处理的文本"
+                  />
+                </label>
+                {filePicker()}
+                <FlowEditor nodes={input.nodes ?? []} onChange={(nodes) => setInput({ nodes })} />
+              </>
+            ) : null}
+            <div className={styles.actions}>
+              {kind === 'podcast' ? (
+                <>
+                  <Button
+                    disabled={busy || !input.topic?.trim()}
+                    onClick={() => start({ ...input, action: 'script' })}
+                  >
+                    生成脚本
+                  </Button>
+                  <Button
+                    disabled={busy || !input.topic?.trim() || !input.script?.trim()}
+                    variant="outlined"
+                    onClick={() => start({ ...input, action: 'audio' })}
+                  >
+                    合成播客
+                  </Button>
+                </>
+              ) : (
+                <Button disabled={busy || !snapshot} onClick={() => start()}>
+                  运行{entry.name}
+                </Button>
+              )}
+              {snapshot?.activeId ? (
+                <Button
+                  variant="outlined"
+                  disabled={pending}
+                  onClick={() =>
+                    void action(async () => {
+                      await api(`/runs/${snapshot.activeId}/cancel`, 'POST')
+                      await refresh()
+                    })
+                  }
+                >
+                  取消当前任务
+                </Button>
+              ) : null}
+            </div>
+            {snapshot?.activeId ? (
+              <p className={styles.hint} role="status">
+                有一个任务正在运行，完成或取消后可继续。
+              </p>
+            ) : null}
+            <details
+              className={styles.schedule}
+              open={kind === 'monitor' || kind === 'subscription' || kind === 'workflow'}
+            >
+              <summary>保存配置与定时运行</summary>
+              <label className={styles.field}>
+                配置名称
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={`${entry.name}配置`}
+                />
+              </label>
+              <label className={styles.check}>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                />
+                启用定时执行
+              </label>
+              <label className={styles.field}>
+                间隔（分钟）
+                <input
+                  type="number"
+                  min={15}
+                  max={43200}
+                  value={minutes}
+                  onChange={(e) => setMinutes(Number(e.target.value))}
+                />
+              </label>
+              <p className={styles.hint}>
+                每天一次填 1440。需在 .env
+                配置密钥并保持本地服务运行；关闭浏览器不影响执行。首轮定时任务在保存后的一个间隔执行。
+              </p>
+              <Button
+                size="m"
+                variant="outlined"
+                disabled={pending || !name.trim() || !snapshot}
+                onClick={save}
+              >
+                {recipeId ? '更新配置' : '保存配置'}
+              </Button>
+              {kind === 'workflow' && recipeId ? (
+                <div className={styles.publish}>
+                  <Button
+                    size="m"
+                    variant="outlined"
+                    disabled={pending}
+                    onClick={() =>
+                      void action(async () => {
+                        await api(`/recipes/${recipeId}/publish`, 'POST')
+                        await refresh()
+                        setNotice('已发布本地 API；再次发布会更换令牌')
+                      })
+                    }
+                  >
+                    发布 / 更换 API 令牌
+                  </Button>
+                  {currentRecipe?.token ? (
                     <>
-                      {filePicker()}
-                      <label className={styles.field}>
-                        识别模式
-                        <select
-                          value={input.purpose}
-                          onChange={(e) => setInput({ purpose: e.target.value })}
-                        >
-                          <option value="rich_layout_recognition">图文混排与区域坐标</option>
-                          <option value="text_recognition">文字识别</option>
-                        </select>
-                      </label>
+                      <pre>{`POST ${window.location.origin}/studio-api/published/${recipeId}\nAuthorization: Bearer ${currentRecipe.token}\nContent-Type: application/json\n\n{"text":"你的输入"}`}</pre>
                       <p className={styles.hint}>
-                        最多 20 个文件，每个不超过 100
-                        MiB。复杂表格会保留在识别文本中，可导出进一步整理。
+                        返回任务 ID 与 resultUrl；携带同一令牌轮询 resultUrl
+                        获取结果。仅本机可访问。
                       </p>
-                    </>
-                  ) : null}
-                  {kind === 'documents' ? (
-                    <>
-                      {filePicker()}
-                      <label className={styles.field}>
-                        分析问题
-                        <textarea
-                          rows={5}
-                          value={input.prompt}
-                          onChange={(e) => setInput({ prompt: e.target.value })}
-                        />
-                      </label>
-                      <div className={styles.actions}>
-                        {[
-                          '总结内容并引用原文证据',
-                          '比较这些文档的共同点、差异和矛盾，注明文件名',
-                          '提取关键数据与表格，说明无法确认的内容',
-                        ].map((s) => (
-                          <button type="button" key={s} onClick={() => setInput({ prompt: s })}>
-                            {s.slice(0, 8)}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-                  {kind === 'podcast' ? (
-                    <>
-                      <label className={styles.field}>
-                        播客主题
-                        <input
-                          value={input.topic}
-                          onChange={(e) => setInput({ topic: e.target.value })}
-                          placeholder="例如：本周开源 AI 的重要进展"
-                        />
-                      </label>
-                      <label className={styles.field}>
-                        双人脚本（A 女声 / B 男声）
-                        <textarea
-                          rows={10}
-                          value={input.script}
-                          onChange={(e) => setInput({ script: e.target.value })}
-                          placeholder={'A: 大家好，欢迎收听。\nB: 今天我们聊聊……'}
-                        />
-                      </label>
-                      <p className={styles.hint}>
-                        先生成脚本，编辑确认后合成音频。每行以 A: 或 B: 开头。
-                      </p>
-                    </>
-                  ) : null}
-                  {kind === 'meeting' ? (
-                    <>
-                      {filePicker('fileIds', true)}
-                      {filePicker('referenceIds')}
-                      <label className={styles.field}>
-                        纪要要求
-                        <textarea
-                          rows={3}
-                          value={input.prompt}
-                          onChange={(e) => setInput({ prompt: e.target.value })}
-                          placeholder="例如：重点提取项目决策和待办"
-                        />
-                      </label>
-                      <p className={styles.hint}>
-                        自动转为单声道并按 110
-                        秒切分。时间为片段起点，不提供逐字时间戳或说话人身份识别。最大 100
-                        MiB，建议不超过 3 小时。
-                      </p>
-                    </>
-                  ) : null}
-                  {kind === 'monitor' ? (
-                    <>
-                      <label className={styles.field}>
-                        网页地址
-                        <input
-                          type="url"
-                          value={input.url}
-                          onChange={(e) => setInput({ url: e.target.value })}
-                          placeholder="https://example.com/changelog"
-                        />
-                      </label>
-                      <label className={styles.field}>
-                        检测目标
-                        <textarea
-                          rows={3}
-                          value={input.goal ?? ''}
-                          onChange={(e) => setInput({ goal: e.target.value })}
-                          placeholder="例如：是否发布新版本？哪些更新影响现有使用方式？"
-                        />
-                      </label>
-                      <label className={styles.field}>
-                        忽略包含以下文本的行（每行一条，可选）
-                        <textarea
-                          rows={3}
-                          value={input.ignore}
-                          onChange={(e) => setInput({ ignore: e.target.value })}
-                        />
-                      </label>
-                      <p className={styles.hint}>
-                        在对话中输入链接与目标。同一会话保留快照供后续比较；需要定期检查时保存配置。
-                      </p>
-                    </>
-                  ) : null}
-                  {kind === 'subscription' ? (
-                    <>
-                      <label className={styles.field}>
-                        订阅主题
-                        <input
-                          maxLength={100}
-                          value={input.topic}
-                          onChange={(e) => setInput({ topic: e.target.value })}
-                          placeholder="例如：DeepSeek 开源模型"
-                        />
-                      </label>
-                      <label className={styles.field}>
-                        内容偏好
-                        <textarea
-                          rows={3}
-                          value={input.preferences}
-                          onChange={(e) => setInput({ preferences: e.target.value })}
-                        />
-                      </label>
-                      <label className={styles.check}>
-                        <input
-                          type="checkbox"
-                          checked={input.voice}
-                          onChange={(e) => setInput({ voice: e.target.checked })}
-                        />
-                        同时生成语音简报（前 3500 字）
-                      </label>
-                      <p className={styles.hint}>
-                        搜索最近一天的资料，按链接和内容去重。简报保存在本地运行记录，不发送外部消息。
-                      </p>
-                    </>
-                  ) : null}
-                  {kind === 'workflow' ? (
-                    <>
-                      <label className={styles.field}>
-                        工作流输入
-                        <textarea
-                          rows={3}
-                          value={input.text}
-                          onChange={(e) => setInput({ text: e.target.value })}
-                          placeholder="输入搜索主题、网页地址或需要处理的文本"
-                        />
-                      </label>
-                      {filePicker()}
-                      <FlowEditor
-                        nodes={input.nodes ?? []}
-                        onChange={(nodes) => setInput({ nodes })}
-                      />
-                    </>
-                  ) : null}
-                  <div className={styles.actions}>
-                    {kind === 'podcast' ? (
-                      <>
-                        <Button
-                          disabled={busy || !input.topic?.trim()}
-                          onClick={() => start({ ...input, action: 'script' })}
-                        >
-                          生成脚本
-                        </Button>
-                        <Button
-                          disabled={busy || !input.topic?.trim() || !input.script?.trim()}
-                          variant="outlined"
-                          onClick={() => start({ ...input, action: 'audio' })}
-                        >
-                          合成播客
-                        </Button>
-                      </>
-                    ) : (
-                      <Button disabled={busy || !snapshot} onClick={() => start()}>
-                        运行{entry.name}
-                      </Button>
-                    )}
-                    {snapshot?.activeId ? (
                       <Button
+                        size="s"
                         variant="outlined"
-                        disabled={pending}
                         onClick={() =>
                           void action(async () => {
-                            await api(`/runs/${snapshot.activeId}/cancel`, 'POST')
+                            await api(`/recipes/${recipeId}/publish`, 'DELETE')
                             await refresh()
                           })
                         }
                       >
-                        取消当前任务
+                        撤销发布
                       </Button>
-                    ) : null}
-                  </div>
-                  {snapshot?.activeId ? (
-                    <p className={styles.hint} role="status">
-                      有一个任务正在运行，完成或取消后可继续。
-                    </p>
+                    </>
                   ) : null}
-                  <details
-                    className={styles.schedule}
-                    open={kind === 'monitor' || kind === 'subscription' || kind === 'workflow'}
-                  >
-                    <summary>保存配置与定时运行</summary>
-                    <label className={styles.field}>
-                      配置名称
-                      <input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder={`${entry.name}配置`}
-                      />
-                    </label>
-                    <label className={styles.check}>
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => setEnabled(e.target.checked)}
-                      />
-                      启用定时执行
-                    </label>
-                    <label className={styles.field}>
-                      间隔（分钟）
-                      <input
-                        type="number"
-                        min={15}
-                        max={43200}
-                        value={minutes}
-                        onChange={(e) => setMinutes(Number(e.target.value))}
-                      />
-                    </label>
-                    <p className={styles.hint}>
-                      每天一次填 1440。需在 .env
-                      配置密钥并保持本地服务运行；关闭浏览器不影响执行。首轮定时任务在保存后的一个间隔执行。
-                    </p>
-                    <Button
-                      size="m"
-                      variant="outlined"
-                      disabled={pending || !name.trim() || !snapshot}
-                      onClick={save}
-                    >
-                      {recipeId ? '更新配置' : '保存配置'}
-                    </Button>
-                    {kind === 'workflow' && recipeId ? (
-                      <div className={styles.publish}>
-                        <Button
-                          size="m"
-                          variant="outlined"
-                          disabled={pending}
-                          onClick={() =>
-                            void action(async () => {
-                              await api(`/recipes/${recipeId}/publish`, 'POST')
-                              await refresh()
-                              setNotice('已发布本地 API；再次发布会更换令牌')
-                            })
-                          }
-                        >
-                          发布 / 更换 API 令牌
-                        </Button>
-                        {currentRecipe?.token ? (
-                          <>
-                            <pre>{`POST ${window.location.origin}/studio-api/published/${recipeId}\nAuthorization: Bearer ${currentRecipe.token}\nContent-Type: application/json\n\n{"text":"你的输入"}`}</pre>
-                            <p className={styles.hint}>
-                              返回任务 ID 与 resultUrl；携带同一令牌轮询 resultUrl
-                              获取结果。仅本机可访问。
-                            </p>
-                            <Button
-                              size="s"
-                              variant="outlined"
-                              onClick={() =>
-                                void action(async () => {
-                                  await api(`/recipes/${recipeId}/publish`, 'DELETE')
-                                  await refresh()
-                                })
-                              }
-                            >
-                              撤销发布
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </details>
-                </section>
-                <div>
-                  <section className={styles.card}>
-                    <h2>已保存配置</h2>
-                    {recipes.length ? (
-                      recipes.map((r) => (
-                        <div className={styles.saved} key={r.id}>
-                          <button type="button" onClick={() => load(r)}>
-                            <strong>{r.name}</strong>
-                            <span>
-                              {r.enabled
-                                ? `下次：${new Date(r.nextRunAt ?? 0).toLocaleString()}`
-                                : '手动运行'}
-                              {r.hasBaseline ? ' · 已有快照' : ''}
-                            </span>
-                          </button>
-                          <div className={styles.actions}>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => start(r.input, r.id)}
-                            >
-                              运行
-                            </button>
-                            <button
-                              type="button"
-                              disabled={pending}
-                              onClick={() =>
-                                void action(async () => {
-                                  await api(`/recipes/${r.id}`, 'DELETE')
-                                  if (recipeId === r.id) {
-                                    setRecipeId(undefined)
-                                  }
-                                  await refresh()
-                                })
-                              }
-                            >
-                              删除
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className={styles.hint}>保存常用输入，随时再次运行。</p>
-                    )}
-                  </section>
                 </div>
-              </div>,
-              configHost
-            )
-          : null}
-        <div className={styles.conversation} aria-label="应用对话">
-          {!runs.length ? (
-            <div className={styles.emptyConversation}>
-              <h1>{entry.name}</h1>
-              <p>{entry.description}</p>
-              <p>在右侧配置输入，或直接在下方描述你的需求。</p>
-            </div>
-          ) : null}
-          {runs.map((run) => (
-            <div key={run.id} className={styles.turn}>
-              <div className={styles.userMessage}>
-                {run.message ||
-                  run.input.goal ||
-                  run.input.prompt ||
-                  run.input.topic ||
-                  `运行${entry.name}`}
-              </div>
-              <ResultView
-                run={run}
-                assets={snapshot?.files ?? []}
-                onScript={(script) => {
-                  setInput({ script })
-                  setNotice('脚本已载入右侧编辑区，可以修改并合成音频')
-                }}
-                onRetry={() => start(run.input, run.recipeId ?? undefined, run.message)}
-                busy={busy}
-              />
-            </div>
-          ))}
+              ) : null}
+            </details>
+          </section>
+          <aside className={styles.side}>
+            <section className={styles.card}>
+              <h2>已保存配置</h2>
+              {recipes.length ? (
+                recipes.map((r) => (
+                  <div className={styles.saved} key={r.id}>
+                    <button type="button" onClick={() => load(r)}>
+                      <strong>{r.name}</strong>
+                      <span>
+                        {r.enabled
+                          ? `下次：${new Date(r.nextRunAt ?? 0).toLocaleString()}`
+                          : '手动运行'}
+                        {r.hasBaseline ? ' · 已有快照' : ''}
+                      </span>
+                    </button>
+                    <div className={styles.actions}>
+                      <button type="button" disabled={busy} onClick={() => start(r.input, r.id)}>
+                        运行
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          void action(async () => {
+                            await api(`/recipes/${r.id}`, 'DELETE')
+                            if (recipeId === r.id) {
+                              setRecipeId(undefined)
+                            }
+                            await refresh()
+                          })
+                        }
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className={styles.hint}>保存常用输入，随时再次运行。</p>
+              )}
+            </section>
+            <section className={styles.card}>
+              <h2>运行记录</h2>
+              {snapshot?.runs
+                .filter((r) => r.kind === kind)
+                .slice(0, 30)
+                .map((r) => (
+                  <button
+                    type="button"
+                    className={styles.runItem}
+                    aria-pressed={selected === r.id}
+                    key={r.id}
+                    onClick={() => {
+                      useWorkspace.setState({ runId: r.id })
+                    }}
+                  >
+                    <span>
+                      {statusLabel[r.status]} · {new Date(r.createdAt).toLocaleString()}
+                    </span>
+                    <small>{r.progress}</small>
+                  </button>
+                ))}
+              {!snapshot?.runs.some((r) => r.kind === kind) ? (
+                <p className={styles.hint}>尚无任务。结果会保存在本机。</p>
+              ) : null}
+            </section>
+          </aside>
         </div>
-        <form
-          className={styles.composer}
-          onSubmit={(e) => {
-            e.preventDefault()
-            send()
-          }}
-        >
-          <textarea
-            aria-label="应用消息"
-            rows={3}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder={
-              kind === 'monitor'
-                ? '输入网页链接和检测目标，例如：https://example.com，检查有没有新版本，并解释更新内容'
-                : '描述你的需求，继续追问或使用右侧配置运行'
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                if (!busy && snapshot) {
-                  send()
-                }
-              }
+        {run && run.id === selected && run.kind === kind ? (
+          <ResultView
+            run={run}
+            assets={snapshot?.files ?? []}
+            onScript={(script) => {
+              setInput({ script })
+              setNotice('脚本已载入编辑区，可以修改并合成音频')
             }}
+            onRetry={() => start(run.input, run.recipeId ?? undefined)}
+            busy={busy}
           />
-          <div className={styles.actions}>
-            <span className={styles.hint}>
-              {busy ? '任务进行中…' : 'Enter 发送 · Shift+Enter 换行'}
-            </span>
-            <Button disabled={busy || !snapshot} type="submit">
-              发送
-            </Button>
-          </div>
-        </form>
+        ) : null}
       </div>
     </div>
   )

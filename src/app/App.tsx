@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslate } from '../i18n/index.js'
 import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
@@ -31,11 +31,9 @@ export const App = () => {
   const t = useTranslate(),
     isMobile = useIsMobile(),
     settings = useSettings()
-  const mode = useWorkspace((s) => s.function),
-    configOpen = useWorkspace((s) => s.configOpen)
+  const mode = useWorkspace((s) => s.function)
   const chat = mode === 'chat'
   const app = !chat && mode !== 'search'
-  const [configHost, setConfigHost] = useState<HTMLDivElement | null>(null)
   const ready = useChatStore((s) => s.ready),
     initError = useChatStore((s) => s.initError)
   const activeId = useChatStore((s) => s.activeId)
@@ -72,15 +70,6 @@ export const App = () => {
             ) : null}
             <strong>{functions.find((f) => f.value === mode)?.label}</strong>
             <span>{mode === 'search' ? 'deepseek-flash' : settings.model}</span>
-            {app ? (
-              <Button
-                size="s"
-                variant="outlined"
-                onClick={() => useWorkspace.setState({ configOpen: !configOpen })}
-              >
-                {configOpen ? '收起配置' : '功能配置'}
-              </Button>
-            ) : null}
           </header>
           {saveError ? (
             <div className={styles.saveError} role="alert">
@@ -112,18 +101,9 @@ export const App = () => {
             <SearchStudio />
           </div>
           <div className={styles.searchContent} hidden={!app}>
-            <AppsStudio configHost={app ? configHost : null} />
+            <AppsStudio />
           </div>
         </main>
-        <aside className={styles.configuration} hidden={!app || !configOpen} aria-label="功能配置">
-          <div className={styles.configHeading}>
-            功能配置
-            <button type="button" onClick={() => useWorkspace.setState({ configOpen: false })}>
-              关闭
-            </button>
-          </div>
-          <div ref={setConfigHost} />
-        </aside>
         {chat ? <SearchPanel /> : null}
       </div>
       <SettingsDialog />

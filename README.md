@@ -6,9 +6,9 @@ An open-source AI workspace powered by DeepSeek APIs, forked from [deepseek-ai/c
 
 ## Unified workspace
 
-Choose Chat, Web Search, OCR, Documents, Podcasts, Meetings, Web Monitoring, Subscriptions, or Workflows in the upper-left selector. Conversation history stays on the left, messages and results in the center, and application configuration and schedules on the right. Chat keeps thinking and smart-search controls in its composer without a configuration sidebar. Web Search is a standalone single-query demo with answers, sources, and Markdown export; results survive mode switches but reset on reload. Chat can still read links in context.
+Choose Chat, Web Search, OCR, Documents, Podcasts, Meetings, Web Monitoring, Subscriptions, or Workflows in the upper-left selector. History stays on the left. Each application has its own task form, results, saved presets, and schedules. Chat keeps thinking and smart-search controls in its composer without a configuration sidebar. Web Search is a standalone single-query demo with answers, sources, and Markdown export; results survive mode switches but reset on reload. Chat can still read links in context.
 
-OCR displays Markdown alongside the original PDF. Selecting recognized text navigates to its source page and highlights the region when coordinates are available. Web monitoring accepts a URL and a natural-language goal, answers on the first visit, and compares later snapshots within the conversation.
+OCR displays Markdown alongside the original PDF. Selecting recognized text navigates to its source page and highlights the region when coordinates are available. Web monitoring accepts a URL and a natural-language goal, answers on the first visit, and compares later snapshots using the same saved preset.
 
 Bottom-left Settings provides API keys, model selection, independent safety/metadata/automatic speech toggles, and exportable audit logs. Automatic speech preserves the written reply. Logs contain request metadata and outcomes, not prompts, answers or keys.
 
