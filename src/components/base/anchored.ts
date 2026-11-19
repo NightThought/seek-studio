@@ -11,7 +11,7 @@ import {
 /** 浮层与视口边缘的最小间距 */
 export const VIEWPORT_PADDING = 8
 
-export type Side = 'top' | 'bottom'
+export type Side = 'top' | 'bottom' | 'right'
 export type Align = 'start' | 'center' | 'end'
 
 export type AnchoredPosition = {
@@ -139,6 +139,19 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
 
     if (maxHeight === undefined) {
       const { width, height } = floating.getBoundingClientRect()
+      if (side === 'right') {
+        applyPosition({
+          top: Math.max(
+            VIEWPORT_PADDING,
+            Math.min(
+              rect.top + rect.height / 2 - height / 2,
+              window.innerHeight - height - VIEWPORT_PADDING
+            )
+          ),
+          left: clampLeft(rect.right + offset, width),
+        })
+        return
+      }
       const resolved = resolveSide(spaceAbove, spaceBelow, side, height)
       applyPosition({
         top: resolved === 'top' ? rect.top - offset - height : rect.bottom + offset,
@@ -147,7 +160,12 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
       return
     }
 
-    const resolved = resolveSide(spaceAbove, spaceBelow, side, minSpace)
+    const resolved = resolveSide(
+      spaceAbove,
+      spaceBelow,
+      side === 'right' ? 'bottom' : side,
+      minSpace
+    )
     const available = Math.max(0, resolved === 'top' ? spaceAbove : spaceBelow)
     // 内容比可用空间小时按内容收口，避免浮层留出多余空白
     const height = Math.max(40, Math.min(maxHeight, available, floating.scrollHeight + 2))

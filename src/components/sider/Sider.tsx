@@ -26,6 +26,7 @@ import { newChat, removeSession, useChatStore } from '../../services/chat/store.
 import type { SessionSummary } from '../../services/chat/types.js'
 import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
+import { Tooltip } from '../base/Tooltip.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
 import { api, runStatusLabel, type Snapshot } from '../apps/api.js'
@@ -154,64 +155,71 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
     return (
       <div className={clsx(styles.sider, styles.siderCollapsed)}>
         <div className={styles.railTop}>
+          <Tooltip content={t('expandSiderbarButton')} placement="right">
+            <button
+              type="button"
+              className={styles.toggleBtn}
+              aria-label={t('expandSiderbarButton')}
+              onClick={() => setCollapsed(false)}
+            >
+              <IconPanelLeftOutline16 />
+            </button>
+          </Tooltip>
+        </div>
+        <Tooltip content={t('newChat')} placement="right">
           <button
             type="button"
-            className={styles.toggleBtn}
-            aria-label={t('expandSiderbarButton')}
-            title={t('expandSiderbarButton')}
-            onClick={() => setCollapsed(false)}
+            className={styles.railPrimaryBtn}
+            aria-label={t('newChat')}
+            onClick={() => {
+              selectFunction('chat')
+              newChat()
+            }}
           >
-            <IconPanelLeftOutline16 />
+            <NewChatIcon />
           </button>
-        </div>
-        <button
-          type="button"
-          className={styles.railPrimaryBtn}
-          aria-label={t('newChat')}
-          title={t('newChat')}
-          onClick={() => {
-            selectFunction('chat')
-            newChat()
-          }}
-        >
-          <NewChatIcon />
-        </button>
+        </Tooltip>
         <div className={styles.railDivider} />
         <nav className={styles.railNav} aria-label={t('sidebarSelectFunction')}>
           {functionOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={styles.railItem}
-              aria-label={option.label}
-              title={option.label}
-              data-active={workspace.function === option.value ? 'true' : undefined}
-              onClick={() => selectFunction(option.value)}
-            >
-              {option.icon}
-            </button>
+            <Tooltip key={option.value} content={option.label} placement="right">
+              <button
+                type="button"
+                className={styles.railItem}
+                aria-label={option.label}
+                data-active={workspace.function === option.value ? 'true' : undefined}
+                onClick={() => selectFunction(option.value)}
+              >
+                {option.icon}
+              </button>
+            </Tooltip>
           ))}
         </nav>
         <div className={styles.railDivider} />
-        <button
-          type="button"
-          className={styles.railItem}
-          aria-label={t('sidebarRunHistory')}
-          title={`${t('sidebarChatHistory')} / ${t('sidebarRunHistory')}`}
-          onClick={() => setCollapsed(false)}
+        <Tooltip
+          content={`${t('sidebarChatHistory')} / ${t('sidebarRunHistory')}`}
+          placement="right"
         >
-          <HistoryOutline />
-        </button>
-        <div className={styles.railBottom}>
           <button
             type="button"
             className={styles.railItem}
-            aria-label={t('settings')}
-            title={t('settings')}
-            onClick={() => openSettings('model')}
+            aria-label={t('sidebarRunHistory')}
+            onClick={() => setCollapsed(false)}
           >
-            <IconSettingsOutline16 />
+            <HistoryOutline />
           </button>
+        </Tooltip>
+        <div className={styles.railBottom}>
+          <Tooltip content={t('settings')} placement="right">
+            <button
+              type="button"
+              className={styles.railItem}
+              aria-label={t('settings')}
+              onClick={() => openSettings('model')}
+            >
+              <IconSettingsOutline16 />
+            </button>
+          </Tooltip>
         </div>
       </div>
     )
@@ -226,15 +234,16 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
             {t('close')}
           </button>
         ) : (
-          <button
-            type="button"
-            className={styles.toggleBtn}
-            aria-label={t('collapseSiderbarButton')}
-            title={t('collapseSiderbarButton')}
-            onClick={() => setCollapsed(true)}
-          >
-            <IconPanelLeftOutline16 />
-          </button>
+          <Tooltip content={t('collapseSiderbarButton')} placement="bottom">
+            <button
+              type="button"
+              className={styles.toggleBtn}
+              aria-label={t('collapseSiderbarButton')}
+              onClick={() => setCollapsed(true)}
+            >
+              <IconPanelLeftOutline16 />
+            </button>
+          </Tooltip>
         )}
       </div>
       <div className={styles.functionPicker}>
@@ -321,27 +330,29 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
                       </time>
                     </small>
                   </button>
-                  <button
-                    type="button"
-                    className={styles.appThreadDelete}
-                    aria-label={t('deleteRunLabel')}
-                    disabled={workspace.snapshot?.activeId === run.id}
-                    onClick={async (event) => {
-                      event.stopPropagation()
-                      try {
-                        await api(`/runs/${run.id}`, 'DELETE')
-                        if (useWorkspace.getState().runId === run.id) {
-                          useWorkspace.setState({ runId: null })
+                  <Tooltip content={t('deleteRunLabel')} placement="top">
+                    <button
+                      type="button"
+                      className={styles.appThreadDelete}
+                      aria-label={t('deleteRunLabel')}
+                      disabled={workspace.snapshot?.activeId === run.id}
+                      onClick={async (event) => {
+                        event.stopPropagation()
+                        try {
+                          await api(`/runs/${run.id}`, 'DELETE')
+                          if (useWorkspace.getState().runId === run.id) {
+                            useWorkspace.setState({ runId: null })
+                          }
+                          const next = await api<Snapshot>('/state')
+                          setAppSnapshot(next)
+                        } catch {
+                          showToast({ key: 'historyDeleteFailed', type: 'error' })
                         }
-                        const next = await api<Snapshot>('/state')
-                        setAppSnapshot(next)
-                      } catch {
-                        showToast({ key: 'historyDeleteFailed', type: 'error' })
-                      }
-                    }}
-                  >
-                    <IconTrashOutline16 />
-                  </button>
+                      }}
+                    >
+                      <IconTrashOutline16 />
+                    </button>
+                  </Tooltip>
                 </div>
               )
             })
