@@ -30,6 +30,28 @@ export function publicUrl(value) {
   }
   return u.href
 }
+export function publicUrlInText(value) {
+  const input = value.trim()
+  if (/^https?:\/\/\S+$/i.test(input)) {
+    return publicUrl(input)
+  }
+  const link = input.match(/https?:\/\/[^\s"'<>，。；）]+/i)?.[0]
+  if (!link) {
+    return publicUrl(input)
+  }
+  const closing = []
+  for (let i = 0; i < link.length; i++) {
+    const char = link[i]
+    if (char === '(') {
+      closing.push(')')
+    } else if (char === '[') {
+      closing.push(']')
+    } else if ((char === ')' || char === ']') && closing.pop() !== char) {
+      return publicUrl(link.slice(0, i))
+    }
+  }
+  return publicUrl(link)
+}
 export function validateInput(kind, input = {}) {
   if (!kinds.includes(kind) || !input || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('无效的应用或输入')

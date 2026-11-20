@@ -49,8 +49,8 @@ function mockProvider() {
         sources: options?.search ? [{ url: 'https://example.org/news', title: 'News' }] : [],
       }
     },
-    async fetchPage() {
-      calls.push(['fetch'])
+    async fetchPage(url) {
+      calls.push(['fetch', url])
       return { title: 'Page', content: provider.page }
     },
     async search(query) {
@@ -237,6 +237,18 @@ test('all workflow file and webpage nodes execute against their declared inputs'
     input: { fileIds: [audio.id], nodes: [{ type: 'asr' }] },
   })
   assert.equal(speech.status, 'done', speech.error)
+})
+test('workflow fetch preserves URL brackets in direct input and embedded links', async (t) => {
+  const { engine, provider } = await setup(t)
+  const target = 'https://example.org/examples/[notes]/Feature_(preview)'
+  for (const text of [target, `阅读 [文档](${target}) 并总结`]) {
+    const result = await run(engine, {
+      kind: 'workflow',
+      input: { text, nodes: [{ type: 'fetch' }] },
+    })
+    assert.equal(result.status, 'done', result.error)
+    assert.deepEqual(provider.calls.at(-1), ['fetch', target])
+  }
 })
 test('single execution, cancellation, restart recovery and schedule persistence', async (t) => {
   let now = 100000

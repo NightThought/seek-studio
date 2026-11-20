@@ -4,7 +4,7 @@ import { randomUUID, createHash, randomBytes } from 'node:crypto'
 import { executionOptions, auditEntry } from './policy.mjs'
 import { DeepSeekProvider } from './provider.mjs'
 import { splitAudio, synthesizeScript, wav, parseScript } from './media.mjs'
-import { validateInput, normalizePage, changedLines, publicUrl } from './validation.mjs'
+import { validateInput, normalizePage, changedLines, publicUrlInText } from './validation.mjs'
 
 const hash = (s) => createHash('sha256').update(s).digest('hex')
 const linkList = (sources) =>
@@ -641,7 +641,7 @@ export class StudioEngine {
             result = { text: JSON.stringify(rows, null, 2) }
           }
           if (node.type === 'fetch') {
-            const page = await provider.fetchPage(publicUrl(value), signal)
+            const page = await provider.fetchPage(publicUrlInText(value), signal)
             result = { text: page.content }
           }
           if (node.type === 'chat') {
