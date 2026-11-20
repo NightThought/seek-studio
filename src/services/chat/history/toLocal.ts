@@ -229,13 +229,9 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
     search: message.search_enabled,
     prefix: false,
     status: replyStatus[message.status],
-    // 拒绝回复丢弃模型正文和思考，保留模板提示与工具步骤。
+    // 保留拒答标记与正文片段，思考不导入；这些轮次仍不进入上下文。
     ...(refused ? { stopReason: 'refusal' as const } : {}),
-    blocks: refused
-      ? blocks.filter(
-          (block) => block.type !== 'thinking' && (block.type !== 'text' || block.isTemplate)
-        )
-      : blocks,
+    blocks: refused ? blocks.filter((block) => block.type !== 'thinking') : blocks,
   }
 }
 

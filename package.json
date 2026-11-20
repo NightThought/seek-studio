@@ -1,16 +1,21 @@
 {
-  "name": "chat-demo",
+  "name": "seek-studio",
   "version": "0.1.1",
-  "description": "基于 DeepSeek API 的静态聊天示例。",
+  "description": "基于 DeepSeek API 的开源 AI 工作台。",
   "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "rspack serve -c rspack.config.ts",
+    "dev": "node --env-file-if-exists=.env node_modules/@rspack/cli/bin/rspack.js serve -c rspack.config.ts",
+    "start": "node server/cli.mjs",
+    "start:bg": "node server/cli.mjs --bg",
+    "stop": "node server/cli.mjs stop",
+    "status": "node server/cli.mjs status",
     "build": "rm -rf dist && NODE_ENV=production rspack build -c rspack.config.ts",
     "type": "tsc -p tsconfig.json",
-    "lint": "oxlint src rspack.config.ts",
-    "format": "oxfmt --write ."
+    "lint": "oxlint src server rspack.config.ts",
+    "format": "oxfmt --write .",
+    "test": "tsc -p tests/tsconfig.json && node --test tests/search.test.mjs tests/apps.test.mjs tests/workspace.test.mjs tests/cli.test.mjs"
   },
   "dependencies": {
     "@types/katex": "^0.16.5",
@@ -29,6 +34,7 @@
     "mermaid": "11.10.1",
     "micromark-extension-gfm": "3.0.0",
     "micromark-extension-llm-math": "3.1.0",
+    "pdfjs-dist": "^6.5.438",
     "prismjs": "1.30.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

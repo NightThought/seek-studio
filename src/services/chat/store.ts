@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { autoReadReply } from '../speech/readAloud.js'
+import { getReplyText } from './reply.js'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
@@ -38,8 +40,6 @@ const MODEL: ChatModel = 'deepseek-flash'
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
-/** 安全审核固定开启，所有请求都走扩展模式 */
-const SAFETY_CHECK = { level: 'high' } as const
 /** 服务端判定 file_id 失效后，重新补传并重发的最多次数（不含首次请求） */
 const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
@@ -255,12 +255,12 @@ export const bindChatPersistence = () => {
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
 const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, model } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    model,
     thinking,
     search,
     prefix: true,
@@ -705,11 +705,11 @@ export const continueReply = (sessionId: string, messageId: string) => {
   ) {
     return
   }
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, model } = useSettings.getState()
   const reply: AssistantMessage = {
     ...previous,
     // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
+    model: previous.model ?? model,
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
     status: 'pending',
@@ -982,10 +982,9 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       try {
         const prepared = await prepareFiles(sessionId, request, controller.signal)
         preparing = false
-        // 附件就绪后获取本轮信息；续写沿用原回答快照，重新生成的快照独立保存。
-        const latestReminder = prepared.prefix
-          ? prepared.prefix.latestReminder
-          : createLatestReminder(useSettings.getState())
+        // 根据当前开关生成元信息，关闭时也移除历史中的旧标记。
+        const settings = useSettings.getState()
+        const latestReminder = settings.metadataEnabled ? createLatestReminder(settings) : undefined
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
@@ -1001,11 +1000,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           {
             model: initial.model ?? MODEL,
             system: SYSTEM_PROMPT,
-            messages,
+            messages: settings.metadataEnabled
+              ? messages
+              : messages.filter((m) => m.role !== 'latest_reminder'),
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+            safety_check: { level: settings.safetyEnabled ? 'high' : 'low' },
+            tools: initial.model === 'deepseek-v4-pro' ? [] : serverTools(initial.search ?? false),
+            ...(titleRequests.has(controller) && initial.model !== 'deepseek-v4-pro'
+              ? { title: { enabled: true } }
+              : {}),
           },
           controller.signal
         )
@@ -1090,5 +1093,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       ),
     }))
     persist(sessionId)
+    if (get().activeId === sessionId && reply.status === 'done' && reply.stopReason !== 'refusal') {
+      autoReadReply(reply.id, getReplyText(reply))
+    }
   }
 }

@@ -1,0 +1,563 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
+import { StudioEngine } from '../server/engine.mjs'
+import { DeepSeekProvider } from '../server/provider.mjs'
+import { createStudioMiddleware } from '../server/index.mjs'
+import { parseScript, wav } from '../server/media.mjs'
+import { validateInput, publicUrl, normalizePage, changedLines } from '../server/validation.mjs'
+
+function mockProvider() {
+  const calls = []
+  const provider = {
+    calls,
+    page: 'original content',
+    news: [
+      {
+        url: 'https://example.org/news',
+        title: 'News',
+        content: 'Release notes',
+        date: '2026-11-17',
+      },
+    ],
+    async upload(file, purpose) {
+      calls.push(['upload', file.name, purpose])
+      return { id: 'remote-' + file.id }
+    },
+    async ocr(file, purpose) {
+      calls.push(['ocr', file.name, purpose])
+      return {
+        pages: [
+          {
+            index: 0,
+            text: '<｜ref｜>Title<｜/ref｜><｜box｜>[[10,20,100,80]]<｜/box｜>\n| A | B |',
+            finish_reason: 'stop',
+          },
+        ],
+      }
+    },
+    async chat(prompt, options) {
+      calls.push(['chat', prompt, options])
+      return {
+        text: prompt.includes('严格每行')
+          ? 'A: 大家好。\nB: 欢迎收听。'
+          : 'Generated answer with evidence',
+        sources: options?.search ? [{ url: 'https://example.org/news', title: 'News' }] : [],
+      }
+    },
+    async fetchPage(url) {
+      calls.push(['fetch', url])
+      return { title: 'Page', content: provider.page }
+    },
+    async search(query) {
+      calls.push(['search', query])
+      return provider.news
+    },
+    async asr() {
+      calls.push(['asr'])
+      return '会议决定下周完成原型，负责人待确认。'
+    },
+    async tts(text, voice) {
+      calls.push(['tts', text, voice])
+      return Buffer.alloc(4800)
+    },
+  }
+  return provider
+}
+async function setup(t, provider = mockProvider(), options = {}) {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'seek-test-'))
+  const engine = await new StudioEngine({
+    dir,
+    key: 'secret-test-key',
+    providerFactory: () => provider,
+    ...options,
+  }).init()
+  t.after(async () => {
+    if (engine.active) await engine.cancel(engine.active.run.id)
+    await engine.writes
+    await rm(dir, { recursive: true, force: true })
+  })
+  return { engine, provider, dir }
+}
+async function run(engine, request) {
+  const value = await engine.start(request)
+  await engine.finished
+  return value
+}
+
+test('OCR batch, multi-file document analysis and evidence inputs', async (t) => {
+  const { engine, provider } = await setup(t)
+  const f1 = await engine.asset('one.pdf', Buffer.from('fixture'), 'application/pdf')
+  const f2 = await engine.asset('two.md', Buffer.from('text'), 'text/markdown')
+  const ocr = await run(engine, { kind: 'ocr', input: { fileIds: [f1.id, f2.id] } })
+  assert.equal(ocr.status, 'done')
+  assert.equal(ocr.result.documents.length, 2)
+  const docs = await run(engine, {
+    kind: 'documents',
+    input: { fileIds: [f1.id, f2.id], prompt: '比较文档' },
+  })
+  assert.equal(docs.status, 'done')
+  assert.deepEqual(
+    provider.calls.filter((c) => c[0] === 'upload').map((c) => c[2]),
+    ['rich_layout_recognition', 'user_data']
+  )
+  assert.equal(provider.calls.find((c) => c[0] === 'chat')[2].files.length, 2)
+  assert.ok(docs.result.text)
+  assert.ok(!JSON.stringify(engine.snapshot()).includes('secret-test-key'))
+  assert.ok(!JSON.stringify(engine.snapshot().files).includes(engine.dir))
+})
+test('podcast generates editable script then two voices in a valid WAV', async (t) => {
+  const { engine, provider } = await setup(t)
+  const script = await run(engine, { kind: 'podcast', input: { topic: 'AI' } })
+  assert.equal(script.status, 'done')
+  assert.match(script.result.script, /A:/)
+  const audio = await run(engine, {
+    kind: 'podcast',
+    input: { topic: 'AI', action: 'audio', script: script.result.script },
+  })
+  assert.equal(audio.status, 'done')
+  const bytes = await readFile(engine.file(audio.result.audioId).path)
+  assert.equal(bytes.toString('utf8', 0, 4), 'RIFF')
+  assert.equal(bytes.readUInt32LE(40), bytes.length - 44)
+  assert.deepEqual(
+    provider.calls.filter((c) => c[0] === 'tts').map((c) => c[2]),
+    ['stella', 'tide']
+  )
+  assert.throws(() => parseScript('无角色的文案'))
+})
+test('meeting uses real FFmpeg chunking and merges transcript with reference documents', async (t) => {
+  const { engine, provider } = await setup(t)
+  const audio = await engine.asset(
+    'meeting.wav',
+    wav(Buffer.alloc(16000 * 2 * 112), 16000),
+    'audio/wav'
+  )
+  const doc = await engine.asset('agenda.md', Buffer.from('agenda'), 'text/plain')
+  const result = await run(engine, {
+    kind: 'meeting',
+    input: { fileIds: [audio.id], referenceIds: [doc.id] },
+  })
+  assert.equal(result.status, 'done', result.error)
+  assert.equal(provider.calls.filter((c) => c[0] === 'asr').length, 2)
+  assert.match(result.result.transcript, /\[1:50\]/)
+  assert.equal(provider.calls.filter((c) => c[0] === 'chat').at(-1)[2].files.length, 1)
+})
+test('monitor stores baseline, ignores noise and summarizes only changes', async (t) => {
+  const { engine, provider } = await setup(t)
+  const recipe = await engine.recipe({
+    kind: 'monitor',
+    name: 'Updates',
+    input: { url: 'https://example.org/changes', ignore: 'Clock:' },
+  })
+  provider.page = 'Hello\nClock: 1'
+  assert.equal((await run(engine, { recipeId: recipe.id })).result.changed, false)
+  provider.page = ' Hello \nClock: 2'
+  assert.equal((await run(engine, { recipeId: recipe.id })).result.changed, false)
+  assert.equal(provider.calls.filter((c) => c[0] === 'chat').length, 0)
+  provider.page = 'Hello\nNew feature'
+  const result = await run(engine, { recipeId: recipe.id })
+  assert.equal(result.result.changed, true)
+  assert.deepEqual(result.result.diff.added, ['New feature'])
+  await assert.rejects(
+    engine.start({ recipeId: recipe.id, input: { url: 'https://other.example/path' } }),
+    /保存配置/
+  )
+})
+test('subscription deduplicates persisted content and can synthesize a voice briefing', async (t) => {
+  const { engine, provider } = await setup(t)
+  const recipe = await engine.recipe({
+    kind: 'subscription',
+    name: 'News',
+    input: { topic: 'AI', voice: true },
+  })
+  const first = await run(engine, { recipeId: recipe.id })
+  assert.equal(first.status, 'done')
+  assert.ok(first.result.audioId)
+  const next = await run(engine, { recipeId: recipe.id })
+  assert.equal(next.result.changed, false)
+  assert.equal(provider.calls.filter((c) => c[0] === 'tts').length, 1)
+  provider.news[0].content = 'Updated release'
+  assert.equal((await run(engine, { recipeId: recipe.id })).result.changed, true)
+})
+test('workflow passes outputs, logs steps, stops on failure and publishes revocable tokens', async (t) => {
+  const { engine, provider } = await setup(t)
+  const recipe = await engine.recipe({
+    kind: 'workflow',
+    name: 'Flow',
+    input: {
+      text: 'AI',
+      nodes: [
+        { type: 'search', prompt: '{{input}}' },
+        { type: 'chat', prompt: 'Summary: {{previous}}' },
+        { type: 'tts' },
+      ],
+    },
+  })
+  const completed = await run(engine, { recipeId: recipe.id })
+  assert.equal(completed.status, 'done')
+  assert.equal(completed.steps.length, 3)
+  assert.ok(completed.result.audioId)
+  assert.match(provider.calls.find((c) => c[0] === 'chat')[1], /Release notes/)
+  const token = await engine.publish(recipe.id)
+  assert.equal(token.length, 48)
+  await engine.unpublish(recipe.id)
+  assert.equal(recipe.token, null)
+  provider.chat = async () => {
+    throw new Error('upstream failed')
+  }
+  const failed = await run(engine, { recipeId: recipe.id })
+  assert.equal(failed.status, 'error')
+  assert.equal(failed.steps.length, 2)
+  assert.equal(failed.steps[1].status, 'error')
+})
+test('all workflow file and webpage nodes execute against their declared inputs', async (t) => {
+  const { engine } = await setup(t)
+  const file = await engine.asset('document.pdf', Buffer.from('file'), 'application/pdf')
+  const result = await run(engine, {
+    kind: 'workflow',
+    input: {
+      text: 'https://example.org',
+      fileIds: [file.id],
+      nodes: [
+        { type: 'fetch', prompt: '{{input}}' },
+        { type: 'ocr' },
+        { type: 'files', prompt: 'Summarize {{previous}}' },
+      ],
+    },
+  })
+  assert.equal(result.status, 'done', result.error)
+  assert.equal(result.result.outputs.length, 3)
+  const audio = await engine.asset('audio.wav', wav(Buffer.alloc(32000), 16000), 'audio/wav')
+  const speech = await run(engine, {
+    kind: 'workflow',
+    input: { fileIds: [audio.id], nodes: [{ type: 'asr' }] },
+  })
+  assert.equal(speech.status, 'done', speech.error)
+})
+test('workflow fetch preserves URL brackets in direct input and embedded links', async (t) => {
+  const { engine, provider } = await setup(t)
+  const target = 'https://example.org/examples/[notes]/Feature_(preview)'
+  for (const text of [target, `阅读 [文档](${target}) 并总结`]) {
+    const result = await run(engine, {
+      kind: 'workflow',
+      input: { text, nodes: [{ type: 'fetch' }] },
+    })
+    assert.equal(result.status, 'done', result.error)
+    assert.deepEqual(provider.calls.at(-1), ['fetch', target])
+  }
+})
+test('single execution, cancellation, restart recovery and schedule persistence', async (t) => {
+  let now = 100000
+  const provider = mockProvider()
+  const { engine, dir } = await setup(t, provider, { now: () => now })
+  provider.chat = async (_, { signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    })
+  const task = await engine.start({
+    kind: 'workflow',
+    input: { text: 'test', nodes: [{ type: 'chat' }] },
+  })
+  await assert.rejects(engine.start({ kind: 'podcast', input: { topic: 'test' } }), /已有任务/)
+  await engine.cancel(task.id)
+  assert.equal(task.status, 'cancelled')
+  provider.chat = async () => ({ text: 'ok', sources: [] })
+  const recipe = await engine.recipe({
+    kind: 'subscription',
+    name: 'Timer',
+    enabled: true,
+    intervalMinutes: 15,
+    input: { topic: 'AI' },
+  })
+  const count = engine.state.runs.length
+  await engine.tick()
+  assert.equal(engine.state.runs.length, count)
+  now += 60 * 60000
+  await engine.tick()
+  await engine.finished
+  assert.equal(engine.state.runs.length, count + 1)
+  assert.equal(recipe.nextRunAt, now + 15 * 60000)
+  await engine.tick()
+  assert.equal(engine.state.runs.length, count + 1)
+  engine.state.runs.push({ id: 'interrupted', status: 'running' })
+  await engine.save()
+  const restored = await new StudioEngine({
+    dir,
+    key: 'secret-test-key',
+    providerFactory: () => provider,
+  }).init()
+  assert.equal(restored.state.runs.at(-1).status, 'error')
+  assert.ok(restored.state.recipes[0].seen.length)
+  const disk = await readFile(path.join(dir, 'state.json'), 'utf8')
+  assert.ok(!disk.includes('secret-test-key'))
+})
+test('invalid input, URL schemes, missing files and accidental credential persistence rejected', async (t) => {
+  assert.throws(() => publicUrl('file:///etc/passwd'))
+  assert.throws(() => publicUrl('https://user:password@example.com'))
+  assert.throws(() => publicUrl('http://127.0.0.1/'))
+  assert.throws(() => validateInput('workflow', { nodes: [{ type: 'shell' }] }))
+  assert.throws(() => validateInput('ocr', {}))
+  assert.equal(
+    validateInput('podcast', { topic: 'hello', apiKey: 'do-not-save' }).apiKey,
+    undefined
+  )
+  assert.equal(normalizePage(' A \nClock:1', 'Clock:'), 'A')
+  assert.deepEqual(changedLines('old', 'new'), { added: ['new'], removed: ['old'] })
+  const { engine } = await setup(t)
+  await assert.rejects(
+    engine.recipe({
+      kind: 'monitor',
+      name: 'x',
+      enabled: true,
+      intervalMinutes: 1,
+      input: { url: 'https://example.org' },
+    })
+  )
+})
+test('provider wire format, citations, 200 errors, refusal and incomplete output', async () => {
+  const requests = []
+  let response = {
+    content: [
+      {
+        type: 'text',
+        text: 'Answer',
+        citations: [{ url: 'https://example.org', title: 'Source' }],
+      },
+    ],
+    stop_reason: 'end_turn',
+  }
+  const provider = new DeepSeekProvider('fixture-key', {
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init })
+      return new Response(JSON.stringify(response), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    },
+  })
+  const answer = await provider.chat('question', { files: ['file-1'] })
+  const body = JSON.parse(requests[0].init.body)
+  assert.equal(body.messages[0].content[0].type, 'document')
+  assert.equal(requests[0].init.headers['anthropic-beta'], 'files-api-2025-04-14')
+  assert.equal(answer.sources.length, 1)
+  response = { error: { message: 'processing error' } }
+  await assert.rejects(provider.search('test'))
+  response = { stop_reason: 'refusal', content: [] }
+  await assert.rejects(provider.chat('test'), /拒绝/)
+  response = { stop_reason: 'max_tokens', content: [] }
+  await assert.rejects(provider.chat('test'), /上限/)
+})
+test('local HTTP API: uploads, run results, origin guard, published auth and revocation', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'seek-http-'))
+  const middleware = createStudioMiddleware({
+    dir,
+    key: 'private-secret',
+    providerFactory: () => mockProvider(),
+    schedule: false,
+  })
+  const server = createServer((req, res) => {
+    req.url = req.url.replace(/^\/studio-api/, '')
+    void middleware(req, res)
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  t.after(async () => {
+    await middleware.close()
+    server.closeAllConnections()
+    await new Promise((r) => server.close(r))
+    await rm(dir, { recursive: true, force: true })
+  })
+  const origin = `http://127.0.0.1:${server.address().port}`,
+    base = origin + '/studio-api'
+  const call = async (p, method = 'GET', data, headers = {}) =>
+    fetch(base + p, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: data ? JSON.stringify(data) : undefined,
+    })
+  assert.equal(
+    (await call('/state', 'GET', null, { Origin: 'https://attacker.example' })).status,
+    403
+  )
+  const form = new FormData()
+  form.append('file', new Blob(['test']), 'example.txt')
+  const upload = await (await fetch(base + '/uploads', { method: 'POST', body: form })).json()
+  assert.ok(upload.id)
+  assert.equal(upload.path, undefined)
+  const recipe = await (
+    await call('/recipes', 'POST', {
+      kind: 'workflow',
+      name: 'API',
+      input: { text: 'hello', nodes: [{ type: 'chat' }] },
+    })
+  ).json()
+  const published = await (await call(`/recipes/${recipe.id}/publish`, 'POST', {})).json()
+  assert.equal((await call(`/published/${recipe.id}`, 'POST', { text: 'test' })).status, 401)
+  const launch = await (
+    await call(
+      `/published/${recipe.id}`,
+      'POST',
+      { text: 'external input' },
+      { Authorization: `Bearer ${published.token}` }
+    )
+  ).json()
+  await middleware.engine.finished
+  const result = await (
+    await fetch(origin + launch.resultUrl, {
+      headers: { Authorization: `Bearer ${published.token}` },
+    })
+  ).json()
+  assert.equal(result.status, 'done')
+  assert.equal(result.input.text, 'external input')
+  await call(`/recipes/${recipe.id}/publish`, 'DELETE')
+  assert.equal(
+    (
+      await call(
+        `/published/${recipe.id}`,
+        'POST',
+        {},
+        { Authorization: `Bearer ${published.token}` }
+      )
+    ).status,
+    401
+  )
+  const state = await (await call('/state')).json()
+  assert.ok(!JSON.stringify(state).includes('private-secret'))
+})
+
+test('monitor extracts target URL, answers on first visit, retains conversation and compares later snapshots', async (t) => {
+  const { engine, provider } = await setup(t)
+  const first = await run(engine, {
+    kind: 'monitor',
+    input: { goal: '检查 https://example.org/releases，有没有支持离线使用？' },
+    executionOptions: { safetyEnabled: false, metadataEnabled: true, location: '杭州' },
+  })
+  assert.equal(first.status, 'done', first.error)
+  assert.equal(first.input.url, 'https://example.org/releases')
+  assert.match(provider.calls.find((c) => c[0] === 'chat')[1], /离线使用/)
+  assert.equal(provider.options.safetyEnabled, false)
+  provider.page = 'original content\nOffline support added'
+  const next = await run(engine, {
+    kind: 'monitor',
+    conversationId: first.conversationId,
+    input: { url: first.input.url, goal: '和刚才相比更新了什么？' },
+  })
+  assert.equal(next.status, 'done', next.error)
+  assert.equal(next.result.changed, true)
+  assert.deepEqual(next.result.diff.added, ['Offline support added'])
+  assert.equal(provider.context.length, 2)
+  assert.match(provider.context[0].content, /离线使用/)
+  assert.match(provider.calls.at(-1)[1], /和刚才相比/)
+  assert.equal(engine.snapshot().runs[0].conversationId, first.conversationId)
+})
+
+test('settings control model, safety auditing, metadata, read-url tools and refusal records', async () => {
+  const { executionOptions } = await import('../server/policy.mjs')
+  const requests = [],
+    audits = []
+  let refusal = false
+  const provider = new DeepSeekProvider('secret', {
+    fetchImpl: async (_, init) => {
+      requests.push(JSON.parse(init.body))
+      return new Response(
+        JSON.stringify({
+          id: 'req-1',
+          stop_reason: refusal ? 'refusal' : 'end_turn',
+          content: [{ type: 'text', text: 'answer' }],
+          usage: { output_tokens_details: { safety_tokens: 7 } },
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    },
+  })
+  provider.onAudit = (e) => audits.push(e)
+  provider.options = executionOptions({ metadataEnabled: true, location: '杭州' })
+  provider.context = [{ role: 'user', content: 'earlier question' }]
+  await provider.chat('请阅读 https://example.org')
+  assert.equal(requests[0].safety_check.level, 'high')
+  assert.ok(
+    requests[0].messages.some((m) => m.role === 'latest_reminder' && m.content.includes('杭州'))
+  )
+  assert.ok(requests[0].tools.some((t) => t.name === 'deepseek_read_url'))
+  assert.equal(audits[0].status, 'completed')
+  assert.equal(audits[0].safetyTokens, 7)
+  refusal = true
+  await assert.rejects(provider.chat('blocked'), /拒绝/)
+  assert.equal(audits[1].status, 'refused')
+  refusal = false
+  provider.options = executionOptions({
+    model: 'deepseek-v4-pro',
+    safetyEnabled: false,
+    metadataEnabled: false,
+  })
+  await provider.chat('plain')
+  assert.equal(requests[2].model, 'deepseek-v4-pro')
+  assert.equal(requests[2].safety_check.level, 'low')
+  assert.equal(
+    requests[2].messages.some((m) => m.role === 'latest_reminder'),
+    false
+  )
+  assert.equal(requests[2].tools, undefined)
+  assert.equal(audits.length, 2)
+  await assert.rejects(provider.chat('files', { files: ['f'] }), /Flash/)
+})
+
+test('scheduled recipes preserve execution settings and audit logs persist without arbitrary content', async (t) => {
+  const { engine, dir } = await setup(t)
+  const recipe = await engine.recipe({
+    name: 'goal',
+    kind: 'monitor',
+    input: { goal: 'https://example.org 检查价格变化' },
+    executionOptions: {
+      safetyEnabled: false,
+      metadataEnabled: true,
+      location: '杭州',
+      apiKey: 'never-store',
+    },
+  })
+  const result = await run(engine, { recipeId: recipe.id })
+  assert.equal(result.executionOptions.safetyEnabled, false)
+  assert.equal(result.executionOptions.metadataEnabled, true)
+  await engine.addAudit({
+    status: 'refused',
+    model: 'deepseek-flash',
+    source: 'test',
+    prompt: 'private-question',
+    apiKey: 'never-store',
+  })
+  const restored = await new StudioEngine({ dir, key: 'secret' }).init()
+  assert.equal(restored.state.audits.length, 1)
+  const saved = await readFile(path.join(dir, 'state.json'), 'utf8')
+  assert.ok(!saved.includes('private-question'))
+  assert.ok(!saved.includes('never-store'))
+})
+
+test('run deletion cleans up unreferenced assets while preserving shared files and ttsVoice preference', async (t) => {
+  const { engine, provider } = await setup(t)
+  const shared = await engine.asset('shared.pdf', Buffer.from('shared'), 'application/pdf')
+  const exclusive = await engine.asset('only-one.pdf', Buffer.from('exclusive'), 'application/pdf')
+  const staged = await engine.asset('staged.pdf', Buffer.from('staged'), 'application/pdf')
+  const r1 = await run(engine, {
+    kind: 'documents',
+    input: { fileIds: [shared.id, exclusive.id], prompt: '总结' },
+  })
+  const r2 = await run(engine, {
+    kind: 'workflow',
+    input: { text: 'hello', fileIds: [shared.id], nodes: [{ type: 'tts', prompt: '{{input}}' }] },
+    executionOptions: { ttsVoice: 'tide' },
+  })
+  assert.equal(provider.calls.filter((c) => c[0] === 'tts').at(-1)[2], 'tide')
+  const audioId = r2.result.audioId
+  assert.ok(engine.file(audioId))
+  await engine.removeRun(r1.id)
+  assert.throws(() => engine.file(exclusive.id), /文件不存在/)
+  assert.ok(engine.file(shared.id))
+  assert.ok(engine.file(staged.id))
+  await engine.removeRun(r2.id)
+  assert.throws(() => engine.file(shared.id), /文件不存在/)
+  assert.throws(() => engine.file(audioId), /文件不存在/)
+  assert.ok(engine.file(staged.id))
+})

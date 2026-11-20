@@ -1,23 +1,41 @@
-# chat-demo
+# SeekStudio
 
 English | [简体中文](README.zh-CN.md)
 
-A static chat demo powered by the DeepSeek API. No application backend is required: the browser connects directly to the configured API service.
+An open-source AI workspace powered by DeepSeek APIs, forked from [deepseek-ai/chat-demo](https://github.com/deepseek-ai/chat-demo). This is a community project, not an official DeepSeek product.
 
-You can [try the app online](https://deepseek-ai.github.io/chat-demo/) or download the archive from [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases), extract it, and double-click `index.html` to use it locally without installation or a build. Enter your API key in Settings before your first chat.
+## Unified workspace
+
+Choose Chat, Web Search, OCR, Documents, Podcasts, Meetings, Web Monitoring, Subscriptions, or Workflows in the upper-left selector. History stays on the left. Each application has its own task form, results, saved presets, and schedules. Chat keeps thinking and smart-search controls in its composer without a configuration sidebar. Web Search is a standalone single-query demo with answers, sources, and Markdown export; results survive mode switches but reset on reload. Chat can still read links in context.
+
+OCR displays Markdown alongside the original PDF. Selecting recognized text navigates to its source page and highlights the region when coordinates are available. Web monitoring accepts a URL and a natural-language goal, answers on the first visit, and compares later snapshots using the same saved preset.
+
+Bottom-left Settings provides API keys, model selection, independent safety/metadata/automatic speech toggles, and exportable audit logs. Automatic speech preserves the written reply. Logs contain request metadata and outcomes, not prompts, answers or keys.
+
+Application jobs, files, schedules, and audit records are stored in `.seek-studio/` (Git-ignored). These apps require `pnpm dev`; meeting/ASR processing also requires FFmpeg. Schedules require a server-side key and a running computer/service. Workflow APIs are token-protected and local-only. See [the application guide](docs/apps.md).
+
+## Local API key
+
+Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`. Restart `pnpm dev` after changes. The local server injects this key into upstream requests through `/api`; it is never embedded in client JavaScript or browser storage. The dev server binds to `127.0.0.1`. `.env` is ignored by Git.
+
+Settings → Model & features accepts a browser-specific key, which takes priority for manual requests. Clearing it restores the `.env` key. Schedules and published APIs use `.env`. Without `.env`, chat uses browser-direct requests.
+
+The env proxy is **local development only**. Static `pnpm build` output contains neither the server key nor a proxy and uses the key configured in the browser. A shared, multi-user deployment requires a separately authenticated backend.
 
 ## Getting started
 
-Install Node.js 22.12+ and pnpm, then run:
+Install Node.js 22.13+ and pnpm, then run:
 
 ```sh
-git clone https://github.com/deepseek-ai/chat-demo.git
-cd chat-demo
+git clone https://github.com/NightThought/seek-studio.git
+cd seek-studio
 pnpm install
+cp .env.example .env
+# Set DEEPSEEK_API_KEY in .env
 pnpm dev
 ```
 
-Open http://localhost:8090.
+Open http://127.0.0.1:8090.
 
 To build the static site:
 
@@ -41,7 +59,7 @@ Your API key and settings are stored in the browser's localStorage. Conversation
 
 History import and export in Settings use ZIP archives. After confirmation and successful validation, importing replaces all local conversations and attachments. Exports include conversations and locally available original images, but exclude API keys, settings, and original non-image attachments. See the [history import/export documentation (Chinese)](src/services/chat/history/README.md) for the archive format and preservation details.
 
-Settings → Data → Delete all chats clears all local conversations, original attachments, and unsent drafts after confirmation. It stops ongoing replies and returns to a new chat. Your API key and settings are preserved; files already uploaded to the API service are not deleted.
+Settings → Data → Delete all chats clears browser chat conversations, original attachments, and unsent drafts (not server-side application jobs or audit records) after confirmation. It stops ongoing replies and returns to a new chat. Your API key and settings are preserved; files already uploaded to the API service are not deleted.
 
 ## Development
 
@@ -55,7 +73,7 @@ Settings → Data → Delete all chats clears all local conversations, original 
 
 [rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiOrigin, devServer })` to customize the API origin and development server proxy.
 
-Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
+Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Flash supports tools and files; Pro is available for plain-text chat with extensions disabled. Safety auditing requests `safety_check.level=high`; disabling it uses the API default (`low`). User metadata is sent as `latest_reminder` only when enabled. Supported attachment formats are determined by server-side validation.
 
 ```text
 src/
@@ -73,3 +91,7 @@ src/
 ## License
 
 [MIT](LICENSE). The build copies the license to `dist/LICENSE`; include it when distributing the app. Third-party dependencies are subject to their own licenses.
+
+## Search regression checks
+
+Run `pnpm test` for mocked streaming, HTTP errors, cancellation, refusal, interrupted responses, citation exports, and source URL validation. No API key or paid request is required. Also run `pnpm type`, `pnpm lint`, and `pnpm build`.

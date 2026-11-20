@@ -1,0 +1,597 @@
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
+const { mkdir } = await import('node:fs/promises')
+await mkdir('.cache', { recursive: true })
+import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+const browser = await chromium.launch({ headless: true, channel: 'chrome' })
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1100 }, locale: 'zh-CN' })
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.addInitScript(() => {
+    localStorage.setItem('chat-demo:api-key', 'mock-key')
+    localStorage.setItem('chat-demo:locale', 'zh-CN')
+  })
+  const requests = [],
+    audits = []
+  let ttsCount = 0
+  const mockApi = async (route) => {
+    const url = route.request().url()
+    if (url.endsWith('/models')) return route.fulfill({ json: { data: [] } })
+    if (url.endsWith('/tts')) {
+      ttsCount++
+      return route.fulfill({ contentType: 'audio/pcm', body: Buffer.alloc(4800) })
+    }
+    if (url.endsWith('/messages')) {
+      const body = route.request().postDataJSON()
+      requests.push(body)
+      const events = [
+        {
+          type: 'message_start',
+          message: {
+            id: 'req-' + requests.length,
+            role: 'assistant',
+            model: body.model,
+            content: [],
+          },
+        },
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '这是保留的文字回答。' },
+        },
+        { type: 'content_block_stop', index: 0 },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null, title: '链接分析' },
+          usage: {
+            input_tokens: 10,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 10,
+            output_tokens_details: { safety_tokens: 3 },
+          },
+        },
+        { type: 'message_stop' },
+      ]
+      return route.fulfill({
+        contentType: 'text/event-stream',
+        body: events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''),
+      })
+    }
+    return route.abort()
+  }
+  await page.route('https://api.deepseek.com/**', mockApi)
+  await page.route('**/api/**', mockApi)
+  const state = {
+    configured: true,
+    activeId: null,
+    storageError: null,
+    files: [],
+    recipes: [],
+    runs: [],
+  }
+  let n = 0
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /Font << /F1 5 0 R >> /XObject << /Chart 8 0 R >> >> /Contents 7 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ...['Page One', 'Page Two'].map((label, i) => {
+      const figureAndTable =
+        i === 1
+          ? '\nq 200 0 0 140 100 350 cm /Chart Do Q\nBT /F1 12 Tf 80 300 Td (Item) Tj 130 0 Td (Amount) Tj ET\nBT /F1 12 Tf 80 280 Td (Widget) Tj 130 0 Td (2) Tj ET'
+          : ''
+      const stream = `BT /F1 30 Tf 40 600 Td (${label}) Tj ET${figureAndTable}`
+      return `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
+    }),
+    '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 7 >>\nstream\n1A59CC>\nendstream',
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((obj, i) => {
+    offsets.push(Buffer.byteLength(pdf))
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(pdf)
+  pdf +=
+    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` +
+    offsets
+      .slice(1)
+      .map((n) => `${String(n).padStart(10, '0')} 00000 n \n`)
+      .join('') +
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  const png = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 40
+      canvas.height = 30
+      const context = canvas.getContext('2d')
+      context.fillStyle = '#e83649'
+      context.fillRect(0, 0, 40, 30)
+      context.fillStyle = '#27ab61'
+      context.fillRect(8, 6, 24, 18)
+      return canvas.toDataURL().split(',')[1]
+    }),
+    'base64'
+  )
+  await page.route('**/studio-api/**', async (route) => {
+    const req = route.request(),
+      url = new URL(req.url()),
+      parts = url.pathname.split('/').filter(Boolean).slice(1),
+      method = req.method()
+    const send = (data, status = 200) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
+    if (parts[0] === 'state') return send(state)
+    if (parts[0] === 'audit') {
+      if (method === 'POST') audits.push(req.postDataJSON())
+      return send({ entries: audits })
+    }
+    if (parts[0] === 'assets') {
+      return state.files.find((file) => file.id === parts[1])?.mime === 'image/png'
+        ? route.fulfill({ contentType: 'image/png', body: png })
+        : route.fulfill({ contentType: 'application/pdf', body: Buffer.from(pdf) })
+    }
+    if (parts[0] === 'uploads') {
+      const data = await new Response(req.postDataBuffer(), {
+        headers: { 'content-type': req.headers()['content-type'] },
+      }).formData()
+      const item = data.get('file')
+      const file = { id: 'file-' + ++n, name: item.name, mime: item.type, size: item.size }
+      state.files.push(file)
+      return send(file, 201)
+    }
+    if (parts[0] === 'recipes') {
+      if (parts[2] === 'publish') {
+        const r = state.recipes.find((r) => r.id === parts[1])
+        r.token = method === 'DELETE' ? null : 'mock-publish-token'
+        return send({ token: r.token })
+      }
+      if (method === 'DELETE') {
+        state.recipes = state.recipes.filter((r) => r.id !== parts[1])
+        return send({ ok: true })
+      }
+      const data = req.postDataJSON(),
+        r = {
+          ...data,
+          id: data.id || 'recipe-' + ++n,
+          nextRunAt: Date.now() + 86400000,
+          token: null,
+        }
+      state.recipes = state.recipes.filter((x) => x.id !== r.id)
+      state.recipes.push(r)
+      return send(r)
+    }
+    if (parts[0] === 'runs' && method === 'GET')
+      return send(state.runs.find((r) => r.id === parts[1]))
+    if (parts[0] === 'runs' && method === 'POST') {
+      const { kind, input, recipeId, conversationId, message, executionOptions } =
+        req.postDataJSON()
+      const run = {
+        id: 'run-' + ++n,
+        conversationId: conversationId || randomUUID(),
+        message,
+        executionOptions,
+        kind,
+        input,
+        recipeId: recipeId ?? null,
+        status: 'done',
+        createdAt: Date.now(),
+        progress: '完成',
+        steps: [],
+        result: { text: `## ${kind} 测试结果\n\n内容已生成。` },
+      }
+      if (kind === 'ocr')
+        run.result.documents = [
+          {
+            fileId: input.fileIds[0],
+            name: 'fixture.pdf',
+            pages: [
+              {
+                index: 0,
+                text: '<｜ref｜>title<｜/ref｜><｜box｜>[[10,20,500,300]]<｜/box｜>\n文档标题',
+                finish_reason: 'stop',
+              },
+              {
+                index: 1,
+                text: '<｜ref｜>table<｜/ref｜><｜box｜>[[200,300,600,500]]<｜/box｜>\n<table><tr><td>Item</td><td>Amount</td></tr><tr><td>Widget</td><td>2</td></tr></table>\n\n<｜ref｜>table_caption<｜/ref｜><｜box｜>[[200,520,600,550]]<｜/box｜>\n图 1',
+                finish_reason: 'stop',
+              },
+            ],
+          },
+          ...input.fileIds.slice(1).map((fileId) => ({
+            fileId,
+            name: 'fixture.png',
+            pages: [
+              {
+                index: 0,
+                text: '<｜ref｜>image<｜/ref｜><｜box｜>[[200,200,800,800]]<｜/box｜>',
+                finish_reason: 'stop',
+              },
+            ],
+          })),
+        ]
+      if (kind === 'podcast') {
+        run.result.script = input.script || 'A: 大家好。\nB: 欢迎收听。'
+        if (input.action === 'audio') run.result.audioId = 'audio-1'
+      }
+      if (kind === 'meeting') run.result.transcript = '[0:00] 会议转写。'
+      if (kind === 'monitor') run.result.source = input.url
+      if (kind === 'workflow')
+        run.steps = input.nodes.map((node, i) => ({
+          index: i,
+          type: node.type,
+          status: 'done',
+          preview: '节点结果',
+        }))
+      state.runs.unshift(run)
+      return send(run, 202)
+    }
+    return send({ error: 'not found' }, 404)
+  })
+  await page.goto('http://127.0.0.1:8090/')
+  const choose = async (value) => {
+    const labels = {
+      chat: '对话',
+      search: '联网搜索',
+      ocr: 'OCR 识别',
+      documents: '文档分析',
+      podcast: '播客生成',
+      meeting: '会议助手',
+      monitor: '网页监测',
+      subscription: '信息订阅',
+      workflow: '工作流',
+    }
+    await page.getByRole('button', { name: '选择功能', exact: true }).click()
+    await page.getByRole('option', { name: labels[value], exact: true }).click()
+  }
+  const result = () => page.getByRole('region', { name: '任务结果' }).last().waitFor()
+  const upload = async () => {
+    await page
+      .locator('input[aria-label="上传文件"]')
+      .setInputFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) })
+    await page.getByRole('button', { name: '移除文件 fixture.pdf', exact: true }).waitFor()
+  }
+  const chatHistory = page.getByRole('button', { name: '对话历史', exact: true })
+  const runHistory = page.getByRole('button', { name: '应用运行记录', exact: true })
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'false')
+  await choose('ocr')
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'false')
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
+  await page.setViewportSize({ width: 966, height: 827 })
+  const taskInput = page.getByRole('region', { name: '任务输入' })
+  const startOcr = taskInput.getByRole('button', { name: '开始识别', exact: true })
+  assert.equal(await startOcr.isEnabled(), false)
+  const layoutMode = taskInput.getByRole('radio', { name: /图文混排/ })
+  assert.equal(await layoutMode.isChecked(), true)
+  await layoutMode.press('ArrowRight')
+  assert.equal(await taskInput.getByRole('radio', { name: /文字识别/ }).isChecked(), true)
+  await taskInput.getByText('图文混排', { exact: true }).click()
+  const fileInput = taskInput.locator('input[aria-label="上传文件"]')
+  const chooser = page.waitForEvent('filechooser')
+  await fileInput.click()
+  await (
+    await chooser
+  ).setFiles({ name: 'fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) })
+  const removeFile = taskInput.getByRole('button', { name: '移除文件 fixture.pdf', exact: true })
+  await removeFile.click()
+  assert.equal(await startOcr.isEnabled(), false)
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(['fixture'], 'fixture.pdf', { type: 'application/pdf' }))
+    return data
+  })
+  const chatDropMask = page.getByText('文件拖动到此处即可上传', { exact: true })
+  await fileInput.dispatchEvent('dragenter', { dataTransfer: transfer })
+  await fileInput.dispatchEvent('dragover', { dataTransfer: transfer })
+  assert.equal(await chatDropMask.isVisible(), false)
+  await fileInput.dispatchEvent('drop', { dataTransfer: transfer })
+  await removeFile.waitFor()
+  await fileInput.setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: png })
+  await taskInput.getByRole('button', { name: '移除文件 fixture.png', exact: true }).waitFor()
+  await startOcr.click()
+  const viewResult = taskInput.getByRole('button', { name: '查看结果', exact: true })
+  await viewResult.waitFor()
+  assert.equal(state.runs[0].input.purpose, 'rich_layout_recognition')
+  assert.equal(state.runs[0].input.fileIds.length, 2)
+  await startOcr.and(page.locator('button:enabled')).waitFor()
+  await page.screenshot({ path: '.cache/ocr-task-input.png' })
+  await viewResult.click()
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+    '任务结果'
+  )
+  await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 1 页"]').waitFor()
+  const readFigure = async (figure) => {
+    await figure.scrollIntoViewIfNeeded()
+    const image = figure.locator('img')
+    await image.waitFor()
+    return image.evaluate(async (element) => {
+      await element.decode()
+      const canvas = document.createElement('canvas')
+      const width = (canvas.width = element.naturalWidth)
+      const height = (canvas.height = element.naturalHeight)
+      const context = canvas.getContext('2d')
+      context.drawImage(element, 0, 0)
+      return { width, height, pixel: [...context.getImageData(4, 4, 1, 1).data] }
+    })
+  }
+  await page.getByRole('cell', { name: 'Widget', exact: true }).scrollIntoViewIfNeeded()
+  const pdfFigure = page.getByRole('button', { name: /定位第 2 页插图/ })
+  const pdfCrop = await readFigure(pdfFigure)
+  assert.ok(Math.abs(pdfCrop.width - 300) <= 2 && Math.abs(pdfCrop.height - 210) <= 2)
+  assert.ok(pdfCrop.pixel[2] > 190 && pdfCrop.pixel[0] < 40)
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 1 页"]').waitFor()
+  await pdfFigure.click()
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 2 页"]').waitFor()
+  assert.equal(await page.getByTestId('ocr-highlight').count(), 1)
+  assert.equal(await page.getByRole('cell', { name: 'Widget', exact: true }).count(), 1)
+  assert.equal(await page.getByRole('columnheader', { name: 'Amount', exact: true }).count(), 1)
+  assert.ok(!(await page.getByLabel('Markdown 识别结果').innerText()).includes('<｜'))
+  assert.ok(!(await page.getByLabel('Markdown 识别结果').innerText()).includes('<table'))
+  await page.getByRole('cell', { name: 'Widget', exact: true }).click()
+  const tableHighlightTop = await page
+    .getByTestId('ocr-highlight')
+    .evaluate((element) => parseFloat(element.style.top))
+  assert.ok(
+    tableHighlightTop > 50,
+    `Table highlights below the figure (top: ${tableHighlightTop}%)`
+  )
+  await page.screenshot({ path: '.cache/unified-ocr.png', fullPage: true })
+  await page.getByLabel('识别文档', { exact: true }).selectOption({ label: 'fixture.png' })
+  assert.deepEqual(
+    await readFigure(page.getByRole('button', { name: '定位第 1 页插图 1', exact: true })),
+    {
+      width: 24,
+      height: 18,
+      pixel: [39, 171, 97, 255],
+    }
+  )
+  await page.setViewportSize({ width: 1440, height: 1100 })
+  const ocrConversation = state.runs[0].conversationId
+  await taskInput.getByRole('radio', { name: /文字识别/ }).check()
+  await startOcr.click()
+  await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
+  assert.equal(state.runs[0].input.purpose, 'text_recognition')
+  const originalPage = page.getByLabel('原文页码', { exact: true })
+  await originalPage.selectOption('1')
+  await originalPage.selectOption('0')
+  await originalPage.selectOption('1')
+  await page.locator('canvas[data-ready="true"][aria-label="PDF 原文第 2 页"]').waitFor()
+  assert.equal(await page.getByRole('button', { name: /定位第 2 页插图/ }).count(), 0)
+  await page.getByLabel('识别文档', { exact: true }).selectOption({ label: 'fixture.png' })
+  await page.locator('canvas[data-ready="true"][aria-label="fixture.png"]').waitFor()
+  assert.equal(await page.getByRole('button', { name: /定位第 1 页插图/ }).count(), 0)
+  await choose('documents')
+  await upload()
+  await page.getByRole('textbox', { name: /分析问题/ }).fill('比较这些资料的结论')
+  await page.getByRole('button', { name: '运行文档分析', exact: true }).click()
+  await result()
+  assert.equal(state.runs[0].input.prompt, '比较这些资料的结论')
+  await choose('podcast')
+  await page.getByLabel('播客主题', { exact: true }).fill('AI 新进展')
+  await page.getByRole('button', { name: '生成脚本', exact: true }).click()
+  await result()
+  await page.getByRole('button', { name: '载入脚本编辑', exact: true }).click()
+  await page.getByRole('button', { name: '合成播客', exact: true }).click()
+  await page.locator('audio').waitFor()
+  assert.equal(await page.getByRole('heading', { name: '运行记录', exact: true }).count(), 0)
+  await page.getByRole('complementary', { name: '已保存配置', exact: true }).waitFor()
+  const savedScript = page
+    .getByRole('region', { name: '应用运行记录' })
+    .getByRole('button', { name: /AI 新进展.*播客生成.*已完成/ })
+    .nth(1)
+  await savedScript.click()
+  await result()
+  assert.equal(await savedScript.getAttribute('aria-current'), 'true')
+  assert.equal(await page.locator('audio').count(), 0)
+  await choose('meeting')
+  await upload()
+  await page.getByRole('button', { name: '运行会议助手', exact: true }).click()
+  await result()
+  await page.getByText('完整转写文本', { exact: true }).click()
+  await page.getByText('[0:00] 会议转写。', { exact: true }).waitFor()
+  await choose('monitor')
+  await page.getByLabel('网页地址').fill('https://example.org/changelog')
+  await page.getByLabel('检测目标').fill('是否增加了离线功能？')
+  await page.getByRole('button', { name: '运行网页监测', exact: true }).click()
+  await result()
+  assert.equal(state.runs[0].input.url, 'https://example.org/changelog')
+  assert.match(state.runs[0].input.goal, /离线功能/)
+  assert.equal(state.runs[0].recipeId, null)
+  await page.getByLabel('配置名称', { exact: true }).fill('更新监测')
+  await page.getByLabel('启用定时执行', { exact: true }).check()
+  await page.getByRole('button', { name: '保存配置', exact: true }).click()
+  await page.getByText('配置已保存', { exact: true }).waitFor()
+  await page
+    .getByRole('complementary', { name: '已保存配置', exact: true })
+    .getByRole('button', { name: /更新监测/ })
+    .waitFor()
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
+  await choose('subscription')
+  await page.getByLabel('订阅主题').fill('DeepSeek')
+  await page.getByRole('button', { name: '运行信息订阅', exact: true }).click()
+  await result()
+  await choose('workflow')
+  await page.getByLabel('工作流输入', { exact: true }).fill('DeepSeek API')
+  await page.getByRole('button', { name: '添加节点', exact: true }).click()
+  assert.equal(await page.getByLabel(/节点 \d 类型/).count(), 3)
+  await page.getByLabel('配置名称', { exact: true }).fill('研究流水线')
+  await page.getByRole('button', { name: '保存配置', exact: true }).click()
+  await page.getByText('配置已保存', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '发布 / 更换 API 令牌', exact: true }).click()
+  await page.getByText(/Authorization: Bearer mock-publish-token/).waitFor()
+  await page.getByRole('button', { name: '运行工作流', exact: true }).click()
+  await result()
+  await page
+    .getByRole('button', { name: /运行OCR 工作台.*OCR 识别/ })
+    .last()
+    .click()
+  await page.getByRole('heading', { name: '文档标题', exact: true }).waitFor()
+  assert.ok(state.runs.some((r) => r.conversationId === ocrConversation))
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByLabel('用户元信息标记', { exact: true }).check()
+  await page.getByLabel('自动朗读回答', { exact: true }).check()
+  await page.keyboard.press('Escape')
+  await choose('chat')
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  const composer = page.locator('main textarea:visible')
+  await composer.dispatchEvent('dragenter', { dataTransfer: transfer })
+  await chatDropMask.waitFor()
+  await composer.dispatchEvent('dragleave', { dataTransfer: transfer })
+  await chatDropMask.waitFor({ state: 'hidden' })
+  await transfer.dispose()
+  await composer.fill('阅读 https://example.org 并总结')
+  await composer.press('Enter')
+  await page.getByText('这是保留的文字回答。', { exact: true }).waitFor()
+  await page.waitForFunction(
+    () => JSON.parse(localStorage.getItem('seek-studio:audit') || '[]').length > 0
+  )
+  assert.ok(requests[0].tools.some((t) => t.name === 'deepseek_read_url'))
+  assert.ok(requests[0].tools.some((t) => t.name === 'deepseek_web_search'))
+  assert.ok(requests[0].messages.some((m) => m.role === 'latest_reminder'))
+  assert.equal(requests[0].safety_check.level, 'high')
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(ttsCount, 1)
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByLabel('模型内容安全与审计', { exact: true }).uncheck()
+  await page.getByLabel('用户元信息标记', { exact: true }).uncheck()
+  await page.getByLabel('自动朗读回答', { exact: true }).uncheck()
+  await page.getByRole('tab', { name: '安全审计', exact: true }).click()
+  await page.getByText('完成，未返回拒答', { exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.locator('main textarea:visible').fill('继续解释刚才的链接')
+  await page.locator('main textarea:visible').press('Enter')
+  await page.getByRole('button', { name: '发送', exact: true }).waitFor()
+  await new Promise((r) => setTimeout(r, 500))
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].safety_check.level, 'low')
+  assert.equal(
+    requests[1].messages.some((m) => m.role === 'latest_reminder'),
+    false
+  )
+  assert.ok(requests[1].messages.length >= 3)
+  assert.equal(ttsCount, 1)
+  assert.equal(audits.length, 1)
+  const savedChat = page
+    .getByRole('region', { name: '对话历史' })
+    .getByText('链接分析', { exact: true })
+  const savedRun = page
+    .getByRole('region', { name: '应用运行记录' })
+    .getByRole('button', { name: /运行OCR 工作台.*OCR 识别/ })
+    .first()
+  await savedChat.waitFor()
+  await page.setViewportSize({ width: 1099, height: 720 })
+  await runHistory.press('Enter')
+  await savedRun.waitFor()
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
+  const chatVisibility = await savedChat.evaluate(
+    (title) =>
+      new Promise((resolve) => {
+        const observer = new IntersectionObserver(([entry]) => {
+          observer.disconnect()
+          resolve(entry.intersectionRatio)
+        })
+        observer.observe(title.parentElement)
+      })
+  )
+  assert.ok(
+    chatVisibility > 0.99,
+    'The conversation row should stay visible with both histories open'
+  )
+  await savedRun.click({ trial: true })
+  await chatHistory.click()
+  await savedChat.waitFor({ state: 'hidden' })
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
+  await runHistory.click()
+  await savedRun.waitFor({ state: 'hidden' })
+  await chatHistory.click()
+  await page.setViewportSize({ width: 1099, height: 984 })
+  await page.mouse.move(350, 50)
+  const newChatGeometry = await page
+    .getByRole('button', { name: '开启新对话', exact: true })
+    .evaluate((button) => ({
+      width: button.getBoundingClientRect().width,
+      radius: getComputedStyle(button).borderTopLeftRadius,
+    }))
+  for (const [control, centered] of [
+    [page.getByRole('button', { name: '选择功能', exact: true }), true],
+    [chatHistory, false],
+    [runHistory, false],
+  ]) {
+    assert.equal(await control.locator('svg').count(), 2)
+    const geometry = await control.evaluate((button) => {
+      const buttonBounds = button.getBoundingClientRect()
+      const labelBounds = button.firstElementChild.getBoundingClientRect()
+      const style = getComputedStyle(button)
+      return {
+        width: buttonBounds.width,
+        radius: style.borderTopLeftRadius,
+        background: style.backgroundColor,
+        labelOffset:
+          labelBounds.x + labelBounds.width / 2 - (buttonBounds.x + buttonBounds.width / 2),
+      }
+    })
+    assert.equal(geometry.width, newChatGeometry.width)
+    if (centered) {
+      assert.equal(geometry.radius, newChatGeometry.radius)
+      assert.ok(Math.abs(geometry.labelOffset) < 1)
+    } else {
+      assert.equal(geometry.background, 'rgba(0, 0, 0, 0)')
+      assert.ok(geometry.labelOffset < -1)
+    }
+  }
+  await page.screenshot({ path: '.cache/unified-chat.png', fullPage: true })
+  await page.setViewportSize({ width: 1440, height: 1100 })
+  await choose('search')
+  await page.getByRole('heading', { name: 'AI 搜索工作台', exact: true }).waitFor()
+  assert.equal(await page.getByRole('complementary', { name: '功能配置' }).count(), 0)
+  await page.getByLabel('你想了解什么？', { exact: true }).fill('搜索 Demo 验证')
+  await page.getByRole('button', { name: '开始搜索', exact: true }).click()
+  await page.getByRole('button', { name: '导出 Markdown', exact: true }).waitFor()
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(requests.length, 3)
+  assert.equal(requests[2].safety_check.level, 'low')
+  assert.equal(requests[2].messages.length, 1)
+  assert.equal(ttsCount, 1)
+  await choose('chat')
+  await choose('search')
+  await page.getByRole('button', { name: '导出 Markdown', exact: true }).waitFor()
+  await page.screenshot({ path: '.cache/search-demo.png', fullPage: true })
+  await page.getByRole('button', { name: '选择功能', exact: true }).click()
+  await page.screenshot({ path: '.cache/function-selector.png', fullPage: true })
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  assert.equal(await page.getByLabel('模型内容安全与审计', { exact: true }).isChecked(), false)
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: '历史与功能', exact: true }).click()
+  assert.equal(await chatHistory.getAttribute('aria-expanded'), 'true')
+  await choose('ocr')
+  await page.getByRole('button', { name: '历史与功能', exact: true }).click()
+  assert.equal(await runHistory.getAttribute('aria-expanded'), 'true')
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: '功能配置', exact: true }).count(), 0)
+  await page.locator('input[aria-label="上传文件"]').waitFor()
+  await page.screenshot({ path: '.cache/unified-mobile.png', fullPage: true })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  assert.deepEqual(errors, [])
+  console.log(
+    'PASS: seven standalone apps, file selection and drop routing, OCR mode choices, PDF page/region mapping, Markdown tables, run history, inline schedules, settings, and mobile layout'
+  )
+} catch (error) {
+  const page = browser.contexts()[0]?.pages()[0]
+  if (page) {
+    await page.screenshot({ path: '.cache/ui-failure.png', fullPage: true })
+    console.error((await page.locator('body').innerText()).slice(-6000))
+  }
+  throw error
+} finally {
+  await browser.close()
+}

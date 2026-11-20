@@ -47,17 +47,25 @@ export const AssistantMessage = memo(function AssistantMessage({
   const view = useReplyView(message, streaming)
   const panelEntry = useSearchPanel((state) => state.entry)
   const notice = streaming ? null : describeReply(message)
-  // 安全拒绝：已下发的思考与正文按协议丢弃，只显示模板答复。
+  // 拒答片段保留显示，并在正文上方标明整条回答的最终状态。
   const refused = message.stopReason === 'refusal'
-  const answer = refused ? null : view.answer
+  const answer = view.answer
   const responseText = [answer?.text, notice?.presentation === 'response' ? notice.text : null]
     .filter(Boolean)
     .join('\n\n')
-  const copyText = responseText || notice?.text
+  const copyText = refused
+    ? [notice?.text, answer?.text].filter(Boolean).join('\n\n')
+    : responseText || notice?.text
   const waiting = streaming && view.steps.length === 0 && !view.answer && !message.thinking
   const summaryEntry = `${message.id}-summary`
   return (
     <div className={styles.message}>
+      {refused ? (
+        <div role="alert" className={clsx(styles.notice, styles.refusalNotice)}>
+          <IconWarningOutline16 />
+          <span>{notice?.text ?? t(answer ? 'replyRefusedPartial' : 'replyRefusedEmpty')}</span>
+        </div>
+      ) : null}
       {refused ? null : (
         <ReplyArea
           message={message}
@@ -83,7 +91,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           ))}
         </div>
       ) : null}
-      {notice?.presentation === 'response' ? (
+      {refused ? null : notice?.presentation === 'response' ? (
         <Markdown
           className="ds-assistant-message-main-content"
           content={notice.text}
@@ -102,7 +110,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 <button
                   type="button"
                   className={styles.noticeAction}
-                  onClick={() => openSettings('data')}
+                  onClick={() => openSettings('model')}
                 >
                   {t('changeApiKey')}
                 </button>
@@ -124,7 +132,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           </span>
         </div>
       ) : null}
-      {!streaming && !refused && view.searchResults.length > 0 ? (
+      {!streaming && view.searchResults.length > 0 ? (
         <div
           className={clsx(styles.summary, panelEntry === summaryEntry && styles.summaryActive)}
           onClick={() => toggleSearchPanel(summaryEntry, view.searchResults)}

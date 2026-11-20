@@ -2,18 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslate } from '../../i18n/index.js'
 import { MAX_COUNT, MAX_SIZE_MB } from '../../services/attachments.js'
+import { useWorkspace } from '../../services/workspace.js'
 import styles from './DragMask.module.css'
 
 const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false
 
 /**
- * 拖拽上传：页面任意位置拖入文件即显示全屏遮罩，松手后交给 onDrop。
+ * 在对话页拖入文件时显示全屏遮罩，松手后交给 onDrop。
  */
 export const useFileDrop = (onDrop: (files: File[]) => void) => {
+  const chatActive = useWorkspace((state) => state.function === 'chat')
   const [dragging, setDragging] = useState(false)
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
   useEffect(() => {
+    if (!chatActive) {
+      setDragging(false)
+      return
+    }
     // dragenter / dragleave 会在子元素间反复触发，用计数判断是否真正离开页面
     let depth = 0
     const enter = (event: DragEvent) => {
@@ -52,8 +58,8 @@ export const useFileDrop = (onDrop: (files: File[]) => void) => {
       document.removeEventListener('dragover', over)
       document.removeEventListener('drop', drop)
     }
-  }, [])
-  return dragging
+  }, [chatActive])
+  return chatActive && dragging
 }
 
 /** 拖拽遮罩，挂到 body 上盖住整个页面 */

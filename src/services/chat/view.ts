@@ -337,7 +337,12 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     }
   })
 
-  const answer = pendingText.length > 0 ? joinTextBlocks(pendingText, registry) : null
+  // 拒答后步骤区会隐藏；将工具调用前后的正文都保留在标记下方。
+  const answerBlocks =
+    reply.stopReason === 'refusal'
+      ? reply.blocks.flatMap((block) => (block.type === 'text' && !block.isTemplate ? [block] : []))
+      : pendingText
+  const answer = answerBlocks.length > 0 ? joinTextBlocks(answerBlocks, registry) : null
   return {
     steps,
     answer: answer && answer.text ? answer : null,

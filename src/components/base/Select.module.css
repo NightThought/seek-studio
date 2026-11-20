@@ -49,10 +49,33 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.labelWithIcon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.optionIcon {
+  display: flex;
+  flex: 0 0 16px;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.labelText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .arrow {
   position: absolute;
   top: 50%;
-  right: 14px;
+  inset-inline-end: 14px;
   display: flex;
   color: var(--dsw-alias-label-secondary);
   transform: translateY(-50%);
@@ -94,7 +117,8 @@
   user-select: none;
   transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
 
-  &:hover {
+  &:hover,
+  &.optionActive {
     background: var(--dsw-alias-interactive-bg-hover);
   }
 }

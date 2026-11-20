@@ -1,23 +1,51 @@
-# chat-demo
+# 求索 SeekStudio
 
 [English](README.md) | 简体中文
 
-基于 DeepSeek API 的静态聊天示例。无需应用后端，浏览器直接请求配置的 API 服务。
+基于 DeepSeek API 的开源 AI 工作台，Fork 自 [deepseek-ai/chat-demo](https://github.com/deepseek-ai/chat-demo)。这是社区项目，非 DeepSeek 官方产品。
 
-点击 [在线体验](https://deepseek-ai.github.io/chat-demo/) 即可使用，也可以前往 [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases) 下载压缩包，解压后双击 `index.html` 在本地使用，无需安装或构建。首次使用时，请在设置中填写 API Key。
+## 统一工作台
+
+左上角选择功能，左侧保留历史。各应用在自己的页面填写参数、运行任务、查看结果和设置定时执行。对话页的深度思考和智能搜索只保留在输入框中。联网搜索恢复为独立的单次搜索 Demo，展示答案、来源并支持 Markdown 导出；切换功能保留结果，刷新后清空。普通对话仍可读取链接并结合上下文回答。
+
+OCR 以 Markdown 展示标题、表格和正文；选择文字时，左侧 PDF 自动切换到对应页，有区域坐标时高亮原文。网页监测支持直接输入“链接 + 检测目标”，首次读取即可作答，使用同一已保存配置可比较后续变化。
+
+左下角「设置 → 模型与功能」可配置 API Key、选择模型，分别开关内容安全审计、用户元信息和自动朗读。新回答自动播放时仍保留文字，可随时停止。审计记录在「设置 → 安全审计」查看、导出，不保存提问、回复正文或密钥。
+
+## 应用工作台
+
+左上角提供 OCR、文档分析、播客、会议助手、网页监测、信息订阅和顺序工作流。支持本地运行记录、取消、定时执行和带令牌的本地工作流 API。
+
+新增应用依赖 `pnpm dev` 启动的本地后端；会议处理还需要 FFmpeg。数据保存在 `.seek-studio/`。具体用法、验证命令和各功能边界见[应用工作台说明](docs/apps.md)。
+
+## 本地 API Key 配置
+
+项目提供 `.env.example`，复制为 `.env` 后填写：
+
+```dotenv
+DEEPSEEK_API_KEY=你的DeepSeek开放平台APIKey
+```
+
+运行 `pnpm dev` 时，本地服务读取该变量并通过 `/api` 代理请求 DeepSeek。密钥只存在于本地服务端，不注入前端 JavaScript、不写入浏览器存储。服务默认只监听 `127.0.0.1`；修改 `.env` 后需要重启。`.env` 被 Git 忽略，切勿提交真实密钥。
+
+也可在「设置 → 模型与功能」填写 API Key。手动请求优先使用浏览器密钥，清除后恢复 `.env` 密钥；定时任务和发布 API 使用 `.env`。无 `.env` 时聊天使用浏览器直连模式。
+
+**`.env` 代理仅用于本地开发。** `pnpm build` 的静态产物不会携带服务端密钥或代理；静态部署后使用浏览器设置中的 Key。若要为多用户部署统一服务端密钥，需要另行部署带鉴权、限流的后端。
 
 ## 运行
 
-准备 Node.js 22.12+ 和 pnpm：
+准备 Node.js 22.13+ 和 pnpm：
 
 ```sh
-git clone https://github.com/deepseek-ai/chat-demo.git
-cd chat-demo
+git clone https://github.com/NightThought/seek-studio.git
+cd seek-studio
 pnpm install
+cp .env.example .env
+# 在 .env 中填写 DEEPSEEK_API_KEY
 pnpm dev
 ```
 
-打开 http://localhost:8090 。
+打开 http://127.0.0.1:8090 。
 
 生成静态产物：
 
@@ -37,25 +65,30 @@ pnpm build
 
 ## 数据
 
-API Key 和设置保存在浏览器 localStorage，会话及附件原件保存在 IndexedDB，本地数据按浏览器用户配置和站点源（origin）隔离。发送对话、上传附件和使用语音功能时，相应内容会提交给配置的 API 服务。
+浏览器直连模式的 API Key 和设置保存在浏览器 localStorage，会话及附件原件保存在 IndexedDB，本地数据按浏览器用户配置和站点源（origin）隔离。发送对话、上传附件和使用语音功能时，相应内容会提交给配置的 API 服务。
 
 设置中的历史导入导出使用 ZIP 格式。导入会在确认并校验成功后替换全部本地会话和附件；导出包含会话与本地可用的图片原件，不包含 API Key、设置或非图片附件原件。格式与保留范围见[历史导入导出](src/services/chat/history/README.md)。
 
-设置 → 数据管理 → 删除所有对话，会在确认后清空全部本地会话、附件原件和未发送的草稿，停止正在生成的回复并回到新对话。API Key 和其他设置保留，已上传到 API 服务的文件不受影响。
+设置 → 数据管理 → 删除所有对话，会在确认后清空浏览器中的聊天、附件原件和草稿，停止正在生成的回复。此操作不包含服务端应用任务或审计数据。API Key 和其他设置保留，已上传到 API 服务的文件不受影响。
 
 ## 开发
 
-| 命令          | 用途                |
-| ------------- | ------------------- |
-| `pnpm dev`    | 启动开发服务器      |
-| `pnpm build`  | 构建到 `dist/`      |
-| `pnpm type`   | TypeScript 类型检查 |
-| `pnpm lint`   | oxlint 检查         |
-| `pnpm format` | oxfmt 格式化        |
+| 命令            | 用途                                              |
+| --------------- | ------------------------------------------------- |
+| `pnpm dev`      | 前台启动开发服务器                                |
+| `pnpm start`    | 前台启动服务（支持加 `-- --bg` 切换为后台模式）   |
+| `pnpm start:bg` | 后台启动服务（日志写入 `.seek-studio`）           |
+| `pnpm stop`     | 停止由 `pnpm start` 或 `pnpm start:bg` 启动的服务 |
+| `pnpm status`   | 查看服务运行状态                                  |
+| `pnpm build`    | 构建到 `dist/`                                    |
+| `pnpm test`     | 模拟接口与搜索导出回归测试（无需真实 Key）        |
+| `pnpm type`     | TypeScript 类型检查                               |
+| `pnpm lint`     | oxlint 检查                                       |
+| `pnpm format`   | oxfmt 格式化                                      |
 
 [rspack.config.ts](rspack.config.ts) 默认连接 `https://api.deepseek.com`。`createConfig({ apiOrigin, devServer })` 支持自定义 API 地址和开发服务器代理。
 
-聊天默认使用 `deepseek-flash`，通过 Anthropic 兼容的 Messages / Files API 通信；语音使用 ASR / TTS 接口。请求使用搜索、链接阅读、标题和 `latest_reminder` 等扩展，接入服务需支持相应能力。附件实际支持的格式以服务端校验为准。
+聊天默认使用 `deepseek-flash`，通过 Anthropic 兼容的 Messages / Files API 通信；语音使用 ASR / TTS 接口。Flash 支持联网、文件和安全审核等扩展，Pro 用于关闭扩展后的纯文本对话。安全开关开启时发送 `safety_check.level=high` 并记录审计，关闭时使用 `low` 默认检查。元信息只在开关开启时通过 `latest_reminder` 发送。附件格式以服务端校验为准。
 
 ```text
 src/

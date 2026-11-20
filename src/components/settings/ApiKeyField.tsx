@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { IconEditOutline16 } from '../base/icons.js'
-import { useSettings } from '../../services/settings.js'
+import { useSettings, setApiKey } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { IconButton } from '../base/IconButton.js'
 import { useApiKeyForm } from './useApiKeyForm.js'
@@ -12,7 +12,13 @@ export const useApiKeyEditor = () => {
   const apiKey = useSettings((state) => state.apiKey)
   const [editing, setEditing] = useState(false)
   const form = useApiKeyForm(() => setEditing(false))
-  return { apiKey, editing, setEditing, form, showInput: !apiKey || editing }
+  return {
+    apiKey,
+    editing,
+    setEditing,
+    form,
+    showInput: !apiKey || editing,
+  }
 }
 
 type ApiKeyEditor = ReturnType<typeof useApiKeyEditor>
@@ -26,6 +32,24 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
   return (
     <div className={styles.cell}>
       <div className={styles.apiKey}>
+        {__SERVER_API_KEY__ ? (
+          <div className={styles.description}>
+            {apiKey
+              ? '当前使用浏览器密钥；清除后恢复 .env 密钥。'
+              : '当前使用 .env 密钥，也可在下方配置浏览器专用密钥。'}
+            {apiKey ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setApiKey(null)
+                  setEditing(false)
+                }}
+              >
+                恢复 .env 密钥
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className={styles.label}>{t('apiKeyStart')}</div>
         {apiKey && !editing ? (
           <div className={styles.apiKeySaved}>

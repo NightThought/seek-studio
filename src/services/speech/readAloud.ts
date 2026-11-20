@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { showToast } from '../../components/base/toastState.js'
 import type { TranslationMessage } from '../../i18n/index.js'
 import { ApiError } from '../api/client.js'
 import { classifyApiError } from '../api/errors.js'
@@ -22,6 +23,9 @@ export const useReadAloud = create<ReadAloudState>(() => ({ messageId: null, sta
 
 /** 首帧前多缓冲一点，减少网络抖动造成的断续 */
 const START_DELAY = 0.1
+
+let preparedContext: AudioContext | null = null
+const spoken = new Set<string>()
 
 let current: { controller: AbortController; context: AudioContext } | null = null
 
@@ -88,7 +92,8 @@ export const toggleReadAloud = (
     return
   }
   const controller = new AbortController()
-  const context = new AudioContext({ sampleRate: TTS_SAMPLE_RATE })
+  const context = preparedContext ?? new AudioContext({ sampleRate: TTS_SAMPLE_RATE })
+  preparedContext = null
   current = { controller, context }
   useReadAloud.setState({ messageId, status: 'loading' })
   // 音色在开始朗读时读取，设置中切换后下一次朗读生效
@@ -141,4 +146,22 @@ export const toggleReadAloud = (
       }
     }
   })()
+}
+
+/** Unlock audio in the Send/enable gesture; completion can then play without another click. */
+export const prepareAutoRead = () => {
+  if (!useSettings.getState().autoRead) {
+    return
+  }
+  if (!preparedContext || preparedContext.state === 'closed') {
+    preparedContext = new AudioContext({ sampleRate: TTS_SAMPLE_RATE })
+  }
+  void preparedContext.resume().catch(() => {})
+}
+export const autoReadReply = (id: string, text: string) => {
+  if (!useSettings.getState().autoRead || spoken.has(id) || !text.trim()) {
+    return
+  }
+  spoken.add(id)
+  toggleReadAloud(id, text, (error) => showToast(describeReadAloudError(error)))
 }

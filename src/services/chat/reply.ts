@@ -138,7 +138,7 @@ export const applyEvent = (
 
 /**
  * 回复结束：未结束的思考块以当前时间收尾。
- * 安全拒绝（stop_reason: refusal）时已下发的思考与正文不能撤回，按协议要求由客户端丢弃，只保留工具块。
+ * 拒答时保留已收到的正文供带标记查看，丢弃思考；拒答轮次仍不进入后续上下文。
  */
 export const settleReply = (
   reply: AssistantMessage,
@@ -150,7 +150,7 @@ export const settleReply = (
   status,
   error,
   blocks: reply.blocks.flatMap((block): ReplyBlock[] => {
-    if (reply.stopReason === 'refusal' && (block.type === 'thinking' || block.type === 'text')) {
+    if (reply.stopReason === 'refusal' && block.type === 'thinking') {
       return []
     }
     return block.type === 'thinking' && block.startedAt !== undefined && block.endedAt === undefined
@@ -185,8 +185,7 @@ export const canContinueReply = (reply: AssistantMessage): boolean => {
     return false
   }
   return (
-    reply.status === 'stopped' ||
-    (reply.status === 'done' && reply.stopReason === 'max_tokens')
+    reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
   )
 }
 

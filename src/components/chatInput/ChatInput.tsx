@@ -20,7 +20,7 @@ import {
   setDraftText,
   useDrafts,
 } from '../../services/chat/drafts.js'
-import { stopReadAloud } from '../../services/speech/readAloud.js'
+import { stopReadAloud, prepareAutoRead } from '../../services/speech/readAloud.js'
 import { IconButton } from '../base/IconButton.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
@@ -145,6 +145,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       return
     }
     stopReadAloud()
+    prepareAutoRead()
     if (isMobile) {
       textareaRef.current?.blur()
     } else {

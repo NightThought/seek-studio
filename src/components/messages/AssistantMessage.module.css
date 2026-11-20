@@ -137,3 +137,12 @@
     --search-row-site-logo-color: var(--dsw-alias-interactive-bg-hover);
   }
 }
+
+.refusalNotice {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-weight: 500;
+}

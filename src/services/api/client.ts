@@ -1,3 +1,4 @@
+import { recordAudit } from '../audit.js'
 import { translate, type TranslationMessage } from '../../i18n/index.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
@@ -141,7 +142,7 @@ const hasFile = (body: CreateMessageRequest) =>
  * POST /anthropic/v1/messages（stream: true），逐个产出流式事件，收到 message_stop 时结束。
  * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
  */
-export async function* streamMessage(
+async function* readMessageStream(
   apiKey: string,
   body: CreateMessageRequest,
   signal: AbortSignal
@@ -186,4 +187,51 @@ export async function* streamMessage(
   }
   // 服务端没有提供错误内容时保持为空，不推测断流原因。
   throw new ApiError('interrupted', '')
+}
+
+export async function* streamMessage(
+  apiKey: string,
+  body: CreateMessageRequest,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
+  let status: 'completed' | 'refused' | 'error' | 'cancelled' = 'error'
+  let requestId: string | undefined
+  let safetyTokens: number | undefined
+  try {
+    for await (const event of readMessageStream(apiKey, body, signal)) {
+      if (event.type === 'message_start') {
+        requestId = event.message.id
+      }
+      if (event.type === 'message_delta') {
+        status = event.delta.stop_reason === 'refusal' ? 'refused' : 'completed'
+        const details = event.usage as typeof event.usage & {
+          output_tokens_details?: { safety_tokens?: number }
+        }
+        safetyTokens = details?.output_tokens_details?.safety_tokens
+      }
+      if (event.type === 'message_stop' && status === 'error') {
+        status = 'completed'
+      }
+      yield event
+    }
+  } catch (error) {
+    status = signal.aborted
+      ? 'cancelled'
+      : error instanceof Error && error.message.includes('Content Exists Risk')
+        ? 'refused'
+        : 'error'
+    throw error
+  } finally {
+    if (body.safety_check.level === 'high') {
+      recordAudit({
+        id: crypto.randomUUID(),
+        time: Date.now(),
+        model: body.model,
+        status: signal.aborted ? 'cancelled' : status,
+        source: 'conversation',
+        requestId,
+        safetyTokens,
+      })
+    }
+  }
 }

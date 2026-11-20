@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noEmit": false, "outDir": "../.cache/tests", "rootDir": "../src" },
+  "include": [
+    "../src/services/search/task.ts",
+    "../src/services/chat/describe.ts",
+    "../src/components/apps/ocr.ts",
+    "../src/components/apps/ocrLayout.ts",
+    "../src/env.d.ts"
+  ]
+}

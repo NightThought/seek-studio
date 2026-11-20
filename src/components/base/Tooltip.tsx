@@ -4,7 +4,7 @@ import { useIsMobile } from '../../app/viewport.js'
 import { useAnchoredPosition, useDelayedOpen } from './anchored.js'
 import styles from './Tooltip.module.css'
 
-export type TooltipPlacement = 'top' | 'bottom'
+export type TooltipPlacement = 'top' | 'bottom' | 'right'
 
 const ENTER_DELAY = 100
 

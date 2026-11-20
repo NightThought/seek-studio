@@ -12,7 +12,6 @@ import {
 import { SearchPanel } from '../components/search/SearchPanel.js'
 import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
-import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
@@ -21,116 +20,106 @@ import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
-import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider } from '../components/sider/mobileSiderState.js'
+import { closeMobileSider, openMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { SearchStudio } from '../components/searchStudio/SearchStudio.js'
+import { AppsStudio } from '../components/apps/AppsStudio.js'
+import { functions, useWorkspace } from '../services/workspace.js'
 import styles from './App.module.css'
 
 export const App = () => {
-  const t = useTranslate()
-  const isMobile = useIsMobile()
-  const locale = useSettings((state) => state.locale)
-  // 移动端侧边栏以独立抽屉管理开合状态
-  const siderCollapsed = useSettings((state) => state.siderCollapsed) && !isMobile
-  const ready = useChatStore((state) => state.ready)
-  const initError = useChatStore((state) => state.initError)
-  const saveError = useChatStore((state) => Object.values(state.sessionSaveErrors).some(Boolean))
-  const importingHistory = useChatStore((state) => state.importingHistory)
-  const session = useChatStore((state) =>
-    state.activeId !== null && Object.hasOwn(state.sessionCache, state.activeId)
-      ? state.sessionCache[state.activeId]
-      : undefined
-  )
-  const sessionLoadError = useChatStore((state) =>
-    state.activeId === null ? false : state.sessionLoadErrors[state.activeId] === true
+  const t = useTranslate(),
+    isMobile = useIsMobile(),
+    settings = useSettings()
+  const mode = useWorkspace((s) => s.function)
+  const chat = mode === 'chat'
+  const app = !chat && mode !== 'search'
+  const ready = useChatStore((s) => s.ready),
+    initError = useChatStore((s) => s.initError)
+  const activeId = useChatStore((s) => s.activeId)
+  const session = useChatStore((s) => (s.activeId ? s.sessionCache[s.activeId] : undefined))
+  const streaming = useChatStore((s) => (s.activeId ? Boolean(s.streaming[s.activeId]) : false))
+  const saveError = useChatStore((s) => Object.values(s.sessionSaveErrors).some(Boolean))
+  const loadError = useChatStore((s) =>
+    s.activeId ? Boolean(s.sessionLoadErrors[s.activeId]) : false
   )
   const frameRef = useMobileViewport(isMobile)
-  const streaming = useChatStore((state) =>
-    state.activeId === null ? false : Object.hasOwn(state.streaming, state.activeId)
-  )
-  const activeId = useChatStore((state) => state.activeId)
-
   usePreventPageScroll(isMobile)
-
   useEffect(() => {
-    document.documentElement.lang = locale
-  }, [locale])
-
-  // 文件数、存储空间达到上限时，附件上只显示「上传失败」，原因用 toast 说明
+    document.documentElement.lang = settings.locale
+  }, [settings.locale])
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])
-
-  // 搜索结果面板只属于当前会话
-  useEffect(closeSearchPanel, [activeId])
-  // 切换会话时停止朗读
-  useEffect(stopReadAloud, [activeId])
-  // 移动端选中会话、切换布局后收起抽屉
-  useEffect(closeMobileSider, [activeId, isMobile])
-
+  useEffect(closeSearchPanel, [activeId, mode])
+  useEffect(stopReadAloud, [activeId, mode])
+  useEffect(closeMobileSider, [activeId, mode, isMobile])
   useEffect(() => {
     void initChat()
-    // 首次打开先在设置里输入 API Key
     ensureApiKey()
   }, [])
-
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
+        {isMobile ? <MobileSider /> : <Sider />}
         <main className={styles.main}>
+          <header className={styles.unifiedHeader}>
+            {isMobile ? (
+              <Button size="s" variant="outlined" onClick={openMobileSider}>
+                {t('mobileHistoryAndFunctions')}
+              </Button>
+            ) : null}
+            <strong>
+              {(() => {
+                const entry = functions.find((f) => f.value === mode)
+                return entry ? t(entry.labelKey) : mode
+              })()}
+            </strong>
+            {chat && session ? (
+              <span
+                className={styles.headerSessionTitle}
+                title={session.title || t('untitledChat')}
+              >
+                {session.title || t('untitledChat')}
+              </span>
+            ) : null}
+            <span className={styles.headerModel}>
+              {mode === 'search' ? 'deepseek-flash' : settings.model}
+            </span>
+          </header>
           {saveError ? (
             <div className={styles.saveError} role="alert">
-              <span>{t('sessionSaveFailed')}</span>
-              <Button
-                variant="outlined"
-                size="s"
-                disabled={importingHistory}
-                onClick={retrySaveSessions}
-              >
+              {t('sessionSaveFailed')}
+              <Button size="s" onClick={retrySaveSessions}>
                 {t('retry')}
               </Button>
             </div>
           ) : null}
-          <div className={styles.content}>
-            {siderCollapsed ? <CollapsedSider /> : null}
-            {!ready || (activeId !== null && !session) ? (
-              <div className={styles.loadingView}>
-                {isMobile ? <MobileHeader /> : null}
-                <div className={styles.loadingState} role="status" aria-live="polite">
-                  <span>
-                    {(!ready ? initError : sessionLoadError)
-                      ? t(!ready ? 'sessionListLoadFailed' : 'sessionLoadFailed')
-                      : t('sessionLoading')}
-                  </span>
-                  {(!ready ? initError : sessionLoadError) ? (
-                    <Button
-                      variant="outlined"
-                      size="m"
-                      onClick={() => {
-                        if (!ready) {
-                          void initChat()
-                        } else if (activeId !== null) {
-                          selectSession(activeId)
-                        }
-                      }}
-                    >
-                      {t('retry')}
-                    </Button>
-                  ) : null}
-                </div>
+          <div className={styles.content} hidden={!chat}>
+            {!ready || (activeId && !session) ? (
+              <div className={styles.loadingState} role="status">
+                {initError || loadError ? t('sessionLoadFailed') : t('sessionLoading')}
+                <Button
+                  size="s"
+                  variant="outlined"
+                  onClick={() => (activeId ? selectSession(activeId) : void initChat())}
+                >
+                  {t('retry')}
+                </Button>
               </div>
             ) : session ? (
-              <SessionView
-                session={session}
-                streaming={streaming}
-                siderCollapsed={siderCollapsed}
-              />
+              <SessionView session={session} streaming={streaming} siderCollapsed={false} />
             ) : (
               <Welcome />
             )}
           </div>
+          <div className={styles.searchContent} hidden={mode !== 'search'}>
+            <SearchStudio />
+          </div>
+          <div className={styles.searchContent} hidden={!app}>
+            <AppsStudio />
+          </div>
         </main>
-        <SearchPanel />
+        {chat ? <SearchPanel /> : null}
       </div>
       <SettingsDialog />
       <Toast />
