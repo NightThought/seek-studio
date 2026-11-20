@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { registerCliService } from './server/cli-control.mjs'
 import { createStudioMiddleware } from './server/index.mjs'
 import { defineConfig } from '@rspack/cli'
 import { rspack, type Configuration } from '@rspack/core'
@@ -103,6 +104,15 @@ export const createConfig = ({
     host: '127.0.0.1',
     port: 8090,
     static: false,
+    onListening: (server) => {
+      if (server.server) {
+        void registerCliService(server.server).catch((error: Error) => {
+          process.stderr.write(`无法登记 SeekStudio 服务：${error.message}\n`)
+          process.exitCode = 1
+          process.emit('SIGTERM', 'SIGTERM')
+        })
+      }
+    },
     ...(serverApiKey
       ? {
           proxy: [

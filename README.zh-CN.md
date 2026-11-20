@@ -73,14 +73,18 @@ pnpm build
 
 ## 开发
 
-| 命令          | 用途                                       |
-| ------------- | ------------------------------------------ |
-| `pnpm dev`    | 启动开发服务器                             |
-| `pnpm build`  | 构建到 `dist/`                             |
-| `pnpm test`   | 模拟接口与搜索导出回归测试（无需真实 Key） |
-| `pnpm type`   | TypeScript 类型检查                        |
-| `pnpm lint`   | oxlint 检查                                |
-| `pnpm format` | oxfmt 格式化                               |
+| 命令            | 用途                                              |
+| --------------- | ------------------------------------------------- |
+| `pnpm dev`      | 前台启动开发服务器                                |
+| `pnpm start`    | 前台启动服务（支持加 `-- --bg` 切换为后台模式）   |
+| `pnpm start:bg` | 后台启动服务（日志写入 `.seek-studio`）           |
+| `pnpm stop`     | 停止由 `pnpm start` 或 `pnpm start:bg` 启动的服务 |
+| `pnpm status`   | 查看服务运行状态                                  |
+| `pnpm build`    | 构建到 `dist/`                                    |
+| `pnpm test`     | 模拟接口与搜索导出回归测试（无需真实 Key）        |
+| `pnpm type`     | TypeScript 类型检查                               |
+| `pnpm lint`     | oxlint 检查                                       |
+| `pnpm format`   | oxfmt 格式化                                      |
 
 [rspack.config.ts](rspack.config.ts) 默认连接 `https://api.deepseek.com`。`createConfig({ apiOrigin, devServer })` 支持自定义 API 地址和开发服务器代理。
 

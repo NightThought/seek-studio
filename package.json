@@ -7,11 +7,15 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env node_modules/@rspack/cli/bin/rspack.js serve -c rspack.config.ts",
+    "start": "node server/cli.mjs",
+    "start:bg": "node server/cli.mjs --bg",
+    "stop": "node server/cli.mjs stop",
+    "status": "node server/cli.mjs status",
     "build": "rm -rf dist && NODE_ENV=production rspack build -c rspack.config.ts",
     "type": "tsc -p tsconfig.json",
     "lint": "oxlint src server rspack.config.ts",
     "format": "oxfmt --write .",
-    "test": "tsc -p tests/tsconfig.json && node --test tests/search.test.mjs tests/apps.test.mjs tests/workspace.test.mjs"
+    "test": "tsc -p tests/tsconfig.json && node --test tests/search.test.mjs tests/apps.test.mjs tests/workspace.test.mjs tests/cli.test.mjs"
   },
   "dependencies": {
     "@types/katex": "^0.16.5",
